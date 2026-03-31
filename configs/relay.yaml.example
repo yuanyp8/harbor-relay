@@ -30,6 +30,8 @@ routes:
   - name: kube4-core
     channel: kube4-core
     enabled: true
+    webhook_names:
+      - default
     repository_patterns:
       - "kube4/mysql"
       - "kube4/redis*"
@@ -41,6 +43,8 @@ routes:
   - name: cmict-apps
     channel: cmict-apps
     enabled: true
+    webhook_names:
+      - cmict-project
     repository_patterns:
       - "cmict/**"
     target_sites:
@@ -49,6 +53,8 @@ routes:
   - name: milvus-only
     channel: ai-platform
     enabled: true
+    webhook_names:
+      - default
     repository_patterns:
       - "kube4/milvus*"
       - "milvus/**"

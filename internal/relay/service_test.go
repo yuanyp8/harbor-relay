@@ -2,6 +2,7 @@ package relay
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -166,6 +167,109 @@ func TestHandleWebhook_DuplicateEventIgnored(t *testing.T) {
 	}
 	if !bytes.Contains(rr2.Body.Bytes(), []byte(`"duplicate"`)) {
 		t.Fatalf("expected duplicate response, got %s", rr2.Body.String())
+	}
+}
+
+// TestHandleWebhook_RespectsWebhookScopedRoutes 验证 webhook 的 subpath 不会自动等于 channel，
+// 而是通过 routes[].webhook_names 显式控制 route 命中范围。
+func TestHandleWebhook_RespectsWebhookScopedRoutes(t *testing.T) {
+	store, err := NewStore("")
+	if err != nil {
+		t.Fatalf("new store failed: %v", err)
+	}
+
+	cfg := config.RelayConfig{
+		SourceRegistry: "image.hm.metavarse.tech:9443",
+		Webhooks: []config.WebhookConfig{
+			{Name: "default", Path: "/api/v1/harbor/webhook"},
+			{Name: "cmict", Path: "/api/v1/harbor/webhook/cmict"},
+		},
+		Routes: []config.RouteConfig{
+			{
+				Name:               "default-route",
+				Channel:            "default-channel",
+				WebhookNames:       []string{"default"},
+				RepositoryPatterns: []string{"shared/app"},
+				TargetSites:        []string{"dc1"},
+			},
+			{
+				Name:               "cmict-route",
+				Channel:            "cmict-channel",
+				WebhookNames:       []string{"cmict"},
+				RepositoryPatterns: []string{"shared/app"},
+				TargetSites:        []string{"dc1"},
+			},
+		},
+		Targets: []config.TargetConfig{
+			{Name: "dc1", SiteName: "dc1", TargetRegistry: "sealos.hub:5000"},
+		},
+	}
+	service := NewService(cfg, store, testLogger())
+
+	body := []byte(`{"type":"PUSH_ARTIFACT","event_data":{"repository":{"repo_full_name":"shared/app"},"resources":[{"digest":"sha256:bbbb","tag":"v1"}]}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/harbor/webhook/cmict", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+
+	service.HandleWebhook(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("unexpected status: %d", rr.Code)
+	}
+
+	tasks := store.ListTasks()
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	if tasks[0].Channel != "cmict-channel" {
+		t.Fatalf("expected cmict-channel, got %s", tasks[0].Channel)
+	}
+	if tasks[0].Metadata["webhook_name"] != "cmict" {
+		t.Fatalf("unexpected webhook name metadata: %v", tasks[0].Metadata)
+	}
+}
+
+// TestTriggerCallback 验证回调逻辑至少能正常发起一次 HTTP POST。
+func TestTriggerCallback(t *testing.T) {
+	var called bool
+	callbackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer callback-token" {
+			t.Fatalf("unexpected authorization header: %s", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer callbackServer.Close()
+
+	store, err := NewStore("")
+	if err != nil {
+		t.Fatalf("new store failed: %v", err)
+	}
+	service := NewService(config.RelayConfig{}, store, testLogger())
+
+	task := &Task{
+		ID:               "task-1",
+		EventID:          "event-1",
+		SiteName:         "dc1",
+		SourceRegistry:   "image.hm.metavarse.tech:9443",
+		Repository:       "kube4/mysql",
+		Digest:           "sha256:test",
+		Tags:             []string{"8.0.45"},
+		TargetRegistry:   "sealos.hub:5000",
+		TargetRepository: "kube4/mysql",
+		CallbackURL:      callbackServer.URL,
+		CallbackToken:    "callback-token",
+		Status:           relayv1.TaskStatus_TASK_STATUS_DONE,
+		UpdatedAt:        time.Now(),
+	}
+
+	if err := service.TriggerCallback(context.Background(), task); err != nil {
+		t.Fatalf("trigger callback failed: %v", err)
+	}
+	if !called {
+		t.Fatal("expected callback server to be called")
 	}
 }
 

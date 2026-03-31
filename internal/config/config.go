@@ -37,6 +37,7 @@ type RouteConfig struct {
 	Name               string   `yaml:"name"`
 	Channel            string   `yaml:"channel"`
 	Enabled            *bool    `yaml:"enabled"`
+	WebhookNames       []string `yaml:"webhook_names"`
 	RepositoryPatterns []string `yaml:"repository_patterns"`
 	TargetSites        []string `yaml:"target_sites"`
 }
@@ -133,6 +134,20 @@ func (w WebhookConfig) IsEnabled() bool {
 
 func (r RouteConfig) IsEnabled() bool {
 	return r.Enabled == nil || *r.Enabled
+}
+
+// AllowsWebhook 用于控制某条 route 是否允许某个 webhook 入口命中。
+// 如果 webhook_names 为空，表示该 route 对所有 webhook 入口都生效。
+func (r RouteConfig) AllowsWebhook(webhookName string) bool {
+	if len(r.WebhookNames) == 0 {
+		return true
+	}
+	for _, name := range r.WebhookNames {
+		if name == webhookName {
+			return true
+		}
+	}
+	return false
 }
 
 func (t TargetConfig) IsEnabled() bool {

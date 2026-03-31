@@ -251,6 +251,9 @@ func (s *Service) buildTasksFromRoutes(eventID, eventType, operator, repoName st
 		if !route.IsEnabled() {
 			continue
 		}
+		if !route.AllowsWebhook(webhookName) {
+			continue
+		}
 		if !matchesRepository(route.RepositoryPatterns, repoName) {
 			continue
 		}

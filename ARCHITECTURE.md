@@ -45,10 +45,11 @@ flowchart LR
 3. 解析 Harbor payload
 4. 取出 `repository + digest + tags`
 5. 按 `repository_patterns` 找 route
-6. route 决定 `channel`
-7. route 决定 `target_sites`
-8. 为每个 `site + digest` 生成任务
-9. 把任务落到 store
+6. 如果 route 配了 `webhook_names`，还要检查当前 subpath 对应的 webhook 名称是否允许命中
+7. route 决定 `channel`
+8. route 决定 `target_sites`
+9. 为每个 `site + digest` 生成任务
+10. 把任务落到 store
 
 这一步结束之后，HTTP 的职责就完成了。
 
@@ -81,6 +82,58 @@ DC2 可以订阅：
 - `ai-platform`
 
 这样以后加项目、加 DC、加业务线，都主要是改配置，不用推翻代码。
+
+## webhook subpath 到底和什么关联
+
+这里建议分成两层理解：
+
+1. `webhook.path`
+   - 代表入口边界
+   - 常用于区分不同 Harbor 项目、不同鉴权头、不同 source_registry
+
+2. `route.channel`
+   - 代表调度边界
+   - 决定任务会进入哪个消费频道
+
+默认情况下，`subpath` 不会自动等于 `channel`。
+
+也就是说：
+
+- `/api/v1/harbor/webhook`
+- `/api/v1/harbor/webhook/cmict`
+
+它们首先只是两个不同入口。
+
+如果你希望“某个 subpath 只走某些 route/channel”，应该通过配置显式表达，而不是让程序自动猜。
+
+当前推荐方式就是：
+
+- `webhooks[].name`
+- `routes[].webhook_names`
+
+例如：
+
+```yaml
+webhooks:
+  - name: default
+    path: /api/v1/harbor/webhook
+  - name: cmict-project
+    path: /api/v1/harbor/webhook/cmict
+
+routes:
+  - name: kube4-core
+    channel: kube4-core
+    webhook_names: [default]
+  - name: cmict-apps
+    channel: cmict-apps
+    webhook_names: [cmict-project]
+```
+
+这样语义最清楚：
+
+- subpath 决定“从哪个入口进来”
+- route 决定“要进哪个 channel”
+- webhook 和 channel 的关系由配置管理，而不是自动隐式绑定
 
 ## gRPC 在这里负责什么
 

@@ -10,6 +10,7 @@
 
 - 一个 relay 同时承接多个 Harbor 项目的 webhook
 - webhook 先按仓库规则映射成 `channel`
+- 支持通过 `webhook_names` 控制“某个 subpath 只命中某些 route”
 - 再按 `target_sites` 映射成具体远端任务
 - 远端 agent 只订阅自己关心的 `channel`
 - agent 通过 gRPC 长连接取任务
@@ -71,6 +72,8 @@
 1. Harbor webhook 是否会正确展开成任务
 2. route 是否会把 repository 正确映射成 channel
 3. agent 订阅 channel 时，store 是否只会派发匹配任务
+4. webhook subpath 是否会按配置命中对应 route
+5. HTTP API、gRPC 派单、store 状态流转是否正常
 
 直接运行：
 
@@ -82,6 +85,12 @@ go test ./...
 
 ```bash
 go test ./internal/relay -run Webhook -v
+```
+
+如果你想重点看 gRPC 派单：
+
+```bash
+go test ./internal/relay -run GRPC -v
 ```
 
 ## 构建
