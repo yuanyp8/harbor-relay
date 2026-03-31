@@ -1,0 +1,74 @@
+service_name: harbor-relay
+http_listen: 127.0.0.1:18080
+grpc_listen: 127.0.0.1:19090
+data_file: /data/harbor-relay/relay-state.json
+
+# 默认源仓库地址。
+# 如果某个 webhook 没有单独覆盖 source_registry，就会使用这里的值。
+source_registry: image.hm.metavarse.tech:9443
+
+# 一个 relay 可以同时承接多个 Harbor 项目的 webhook。
+# 最常见做法是：
+# 1. 所有项目共用同一个 path，然后用 routes 按仓库分流
+# 2. 不同项目用不同 path + 不同鉴权头
+webhooks:
+  - name: default
+    enabled: true
+    path: /api/v1/harbor/webhook
+    authorization: "Bearer replace-with-random-secret"
+    source_registry: image.hm.metavarse.tech:9443
+
+  - name: cmict-project
+    enabled: true
+    path: /api/v1/harbor/webhook/cmict
+    authorization: "Bearer replace-with-second-secret"
+    source_registry: image.hm.metavarse.tech:9443
+
+# routes 定义“仓库 -> channel -> 目标站点”的关系。
+# channel 是调度维度，远端 agent 只会消费自己订阅的频道。
+routes:
+  - name: kube4-core
+    channel: kube4-core
+    enabled: true
+    repository_patterns:
+      - "kube4/mysql"
+      - "kube4/redis*"
+      - "kube4/mongo*"
+    target_sites:
+      - dc1
+      - dc2
+
+  - name: cmict-apps
+    channel: cmict-apps
+    enabled: true
+    repository_patterns:
+      - "cmict/**"
+    target_sites:
+      - dc1
+
+  - name: milvus-only
+    channel: ai-platform
+    enabled: true
+    repository_patterns:
+      - "kube4/milvus*"
+      - "milvus/**"
+    target_sites:
+      - dc2
+
+# targets 定义远端站点及其目标仓库信息。
+targets:
+  - name: dc1
+    site_name: dc1
+    enabled: true
+    target_registry: sealos.hub:5000
+    repository_prefix: ""
+    callback_url: "https://ops.hm.metavarse.tech/api/image-sync/callback"
+    callback_token: "replace-with-callback-token"
+
+  - name: dc2
+    site_name: dc2
+    enabled: true
+    target_registry: harbor.remote.example.com
+    repository_prefix: ""
+    callback_url: ""
+    callback_token: ""

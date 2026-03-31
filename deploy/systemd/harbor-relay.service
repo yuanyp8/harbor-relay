@@ -1,0 +1,17 @@
+[Unit]
+Description=Harbor Relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/bin/harbor-relay --config /etc/harbor-relay/relay.yaml
+WorkingDirectory=/data/harbor-relay
+Restart=always
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

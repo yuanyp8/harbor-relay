@@ -1,0 +1,48 @@
+# Relay uses the same public port 9443 as Harbor.
+# The distinction is done by hostname/SNI:
+# - image.hm.metavarse.tech:9443 -> Harbor
+# - relay.hm.metavarse.tech:9443 -> Relay
+
+relay.hm.metavarse.tech:9443 {
+    encode zstd gzip
+
+    header {
+        -Server
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    }
+
+    log {
+        output file /var/log/caddy/access-relay_hm_metavarse_tech_9443.log {
+            mode 0640
+            roll_size 512MB
+            roll_keep 10
+            roll_keep_for 720h
+        }
+        format json
+    }
+
+    @grpc header Content-Type *application/grpc*
+    handle @grpc {
+        reverse_proxy h2c://127.0.0.1:19090 {
+            flush_interval -1
+            stream_timeout 24h
+            transport http {
+                versions h2c 2
+                dial_timeout 10s
+                keepalive 2m
+                read_timeout 0
+                write_timeout 0
+            }
+        }
+    }
+
+    handle {
+        reverse_proxy 127.0.0.1:18080 {
+            flush_interval -1
+            transport http {
+                dial_timeout 10s
+                response_header_timeout 120s
+            }
+        }
+    }
+}

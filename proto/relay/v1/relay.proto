@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package relay.v1;
+
+option go_package = "github.com/yuanyp8/harbor-relay/gen/proto/relay/v1;relayv1";
+
+service RelayService {
+  rpc Connect(stream AgentMessage) returns (stream RelayMessage);
+}
+
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  TASK_STATUS_PENDING = 1;
+  TASK_STATUS_ASSIGNED = 2;
+  TASK_STATUS_PULLING = 3;
+  TASK_STATUS_PUSHING = 4;
+  TASK_STATUS_CALLBACK_PENDING = 5;
+  TASK_STATUS_DONE = 6;
+  TASK_STATUS_FAILED = 7;
+}
+
+message AgentHello {
+  string agent_id = 1;
+  string site_name = 2;
+  string version = 3;
+  repeated string capabilities = 4;
+  repeated string channels = 5;
+}
+
+message AgentHeartbeat {
+  int64 unix_time = 1;
+}
+
+message TaskProgress {
+  string task_id = 1;
+  TaskStatus status = 2;
+  string message = 3;
+  repeated string target_refs = 4;
+}
+
+message AgentMessage {
+  oneof payload {
+    AgentHello hello = 1;
+    AgentHeartbeat heartbeat = 2;
+    TaskProgress progress = 3;
+  }
+}
+
+message RelayAck {
+  string message = 1;
+}
+
+message TaskAssignment {
+  string task_id = 1;
+  string event_id = 2;
+  string site_name = 3;
+  string source_registry = 4;
+  string repository = 5;
+  string digest = 6;
+  repeated string tags = 7;
+  string target_registry = 8;
+  string target_repository = 9;
+  string callback_url = 10;
+  map<string, string> metadata = 11;
+  string channel = 12;
+}
+
+message RelayMessage {
+  oneof payload {
+    RelayAck ack = 1;
+    TaskAssignment task = 2;
+  }
+}

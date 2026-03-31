@@ -1,0 +1,31 @@
+agent_id: dc1-agent-01
+site_name: dc1
+
+# channels 决定当前 agent 会接哪些频道的任务。
+# 如果留空，程序会自动按 ["*"] 处理，表示接收本站点全部频道。
+channels:
+  - kube4-core
+  - cmict-apps
+
+version: "v1"
+
+# relay 和 harbor 可以共用 9443，只要域名不同即可。
+# 例如：
+# - image.hm.metavarse.tech:9443  -> Harbor
+# - relay.hm.metavarse.tech:9443  -> Relay
+relay_address: relay.hm.metavarse.tech:9443
+relay_server_name: relay.hm.metavarse.tech
+insecure_skip_verify: false
+
+source_registry: image.hm.metavarse.tech:9443
+source_username: robot$sync
+source_password: replace-with-harbor-password
+
+target_registry: sealos.hub:5000
+target_username: admin
+target_password: replace-with-target-password
+
+docker_binary: docker
+heartbeat_interval: 10s
+reconnect_interval: 5s
+cleanup_local_images: true
