@@ -108,10 +108,11 @@ func TestGRPCConnect_AssignsTaskAndAcceptsProgress(t *testing.T) {
 	err = stream.Send(&relayv1.AgentMessage{
 		Payload: &relayv1.AgentMessage_Progress{
 			Progress: &relayv1.TaskProgress{
-				TaskId:     task.TaskId,
-				Status:     relayv1.TaskStatus_TASK_STATUS_DONE,
-				Message:    "ok",
-				TargetRefs: []string{"sealos.hub:5000/kube4/mysql:8.0.45"},
+				TaskId:               task.TaskId,
+				Status:               relayv1.TaskStatus_TASK_STATUS_DONE,
+				Message:              "ok",
+				TargetRefs:           []string{"sealos.hub:5000/kube4/mysql:8.0.45"},
+				TargetRefDescriptors: []string{"sealos.hub:5000/kube4/mysql:8.0.45@sha256:abc"},
 			},
 		},
 	})
@@ -126,6 +127,9 @@ func TestGRPCConnect_AssignsTaskAndAcceptsProgress(t *testing.T) {
 			t.Fatal("expected task to exist in store")
 		}
 		if storedTask.Status == relayv1.TaskStatus_TASK_STATUS_DONE {
+			if len(storedTask.TargetRefDescriptors) != 1 {
+				t.Fatalf("expected target ref descriptors to be stored, got %d", len(storedTask.TargetRefDescriptors))
+			}
 			return
 		}
 		time.Sleep(20 * time.Millisecond)

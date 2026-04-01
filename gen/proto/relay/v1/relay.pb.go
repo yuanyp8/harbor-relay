@@ -206,13 +206,14 @@ func (x *AgentHeartbeat) GetUnixTime() int64 {
 }
 
 type TaskProgress struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Status        TaskStatus             `protobuf:"varint,2,opt,name=status,proto3,enum=relay.v1.TaskStatus" json:"status,omitempty"`
-	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	TargetRefs    []string               `protobuf:"bytes,4,rep,name=target_refs,json=targetRefs,proto3" json:"target_refs,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	TaskId               string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Status               TaskStatus             `protobuf:"varint,2,opt,name=status,proto3,enum=relay.v1.TaskStatus" json:"status,omitempty"`
+	Message              string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	TargetRefs           []string               `protobuf:"bytes,4,rep,name=target_refs,json=targetRefs,proto3" json:"target_refs,omitempty"`
+	TargetRefDescriptors []string               `protobuf:"bytes,5,rep,name=target_ref_descriptors,json=targetRefDescriptors,proto3" json:"target_ref_descriptors,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *TaskProgress) Reset() {
@@ -269,6 +270,13 @@ func (x *TaskProgress) GetMessage() string {
 func (x *TaskProgress) GetTargetRefs() []string {
 	if x != nil {
 		return x.TargetRefs
+	}
+	return nil
+}
+
+func (x *TaskProgress) GetTargetRefDescriptors() []string {
+	if x != nil {
+		return x.TargetRefDescriptors
 	}
 	return nil
 }
@@ -429,6 +437,8 @@ type TaskAssignment struct {
 	CallbackUrl      string                 `protobuf:"bytes,10,opt,name=callback_url,json=callbackUrl,proto3" json:"callback_url,omitempty"`
 	Metadata         map[string]string      `protobuf:"bytes,11,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Channel          string                 `protobuf:"bytes,12,opt,name=channel,proto3" json:"channel,omitempty"`
+	SourcePullRef    string                 `protobuf:"bytes,13,opt,name=source_pull_ref,json=sourcePullRef,proto3" json:"source_pull_ref,omitempty"`
+	SourceRefs       []string               `protobuf:"bytes,14,rep,name=source_refs,json=sourceRefs,proto3" json:"source_refs,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -547,6 +557,20 @@ func (x *TaskAssignment) GetChannel() string {
 	return ""
 }
 
+func (x *TaskAssignment) GetSourcePullRef() string {
+	if x != nil {
+		return x.SourcePullRef
+	}
+	return ""
+}
+
+func (x *TaskAssignment) GetSourceRefs() []string {
+	if x != nil {
+		return x.SourceRefs
+	}
+	return nil
+}
+
 type RelayMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Payload:
@@ -642,20 +666,21 @@ const file_proto_relay_v1_relay_proto_rawDesc = "" +
 	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\x12\x1a\n" +
 	"\bchannels\x18\x05 \x03(\tR\bchannels\"-\n" +
 	"\x0eAgentHeartbeat\x12\x1b\n" +
-	"\tunix_time\x18\x01 \x01(\x03R\bunixTime\"\x90\x01\n" +
+	"\tunix_time\x18\x01 \x01(\x03R\bunixTime\"\xc6\x01\n" +
 	"\fTaskProgress\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12,\n" +
 	"\x06status\x18\x02 \x01(\x0e2\x14.relay.v1.TaskStatusR\x06status\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12\x1f\n" +
 	"\vtarget_refs\x18\x04 \x03(\tR\n" +
-	"targetRefs\"\xb7\x01\n" +
+	"targetRefs\x124\n" +
+	"\x16target_ref_descriptors\x18\x05 \x03(\tR\x14targetRefDescriptors\"\xb7\x01\n" +
 	"\fAgentMessage\x12,\n" +
 	"\x05hello\x18\x01 \x01(\v2\x14.relay.v1.AgentHelloH\x00R\x05hello\x128\n" +
 	"\theartbeat\x18\x02 \x01(\v2\x18.relay.v1.AgentHeartbeatH\x00R\theartbeat\x124\n" +
 	"\bprogress\x18\x03 \x01(\v2\x16.relay.v1.TaskProgressH\x00R\bprogressB\t\n" +
 	"\apayload\"$\n" +
 	"\bRelayAck\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"\xea\x03\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"\xb3\x04\n" +
 	"\x0eTaskAssignment\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12\x19\n" +
 	"\bevent_id\x18\x02 \x01(\tR\aeventId\x12\x1b\n" +
@@ -671,7 +696,10 @@ const file_proto_relay_v1_relay_proto_rawDesc = "" +
 	"\fcallback_url\x18\n" +
 	" \x01(\tR\vcallbackUrl\x12B\n" +
 	"\bmetadata\x18\v \x03(\v2&.relay.v1.TaskAssignment.MetadataEntryR\bmetadata\x12\x18\n" +
-	"\achannel\x18\f \x01(\tR\achannel\x1a;\n" +
+	"\achannel\x18\f \x01(\tR\achannel\x12&\n" +
+	"\x0fsource_pull_ref\x18\r \x01(\tR\rsourcePullRef\x12\x1f\n" +
+	"\vsource_refs\x18\x0e \x03(\tR\n" +
+	"sourceRefs\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"q\n" +

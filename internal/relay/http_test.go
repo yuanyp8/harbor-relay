@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,5 +77,35 @@ func TestHTTPHandler_HealthTasksAgents(t *testing.T) {
 	}
 	if len(agentsResp["items"]) != 1 {
 		t.Fatalf("expected 1 agent item, got %d", len(agentsResp["items"]))
+	}
+}
+
+func TestHTTPHandler_HealthzProducesLogs(t *testing.T) {
+	store, err := NewStore("")
+	if err != nil {
+		t.Fatalf("new store failed: %v", err)
+	}
+
+	logger, logBuf := bufferedTestLogger()
+	service := NewService(config.RelayConfig{ServiceName: "harbor-relay"}, store, logger)
+	handler := service.HTTPHandler()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected health status: %d", rr.Code)
+	}
+
+	logs := logBuf.String()
+	for _, want := range []string{
+		"healthz request received",
+		"http request completed",
+		"path=/healthz",
+	} {
+		if !strings.Contains(logs, want) {
+			t.Fatalf("expected logs to contain %q, got:\n%s", want, logs)
+		}
 	}
 }

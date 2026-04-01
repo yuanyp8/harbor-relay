@@ -89,26 +89,60 @@ type harborResource struct {
 func (s *Service) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	webhookCfg, ok := s.webhooks[r.URL.Path]
 	if !ok {
+		s.logger.Warn("webhook request path not configured",
+			"path", r.URL.Path,
+			"method", r.Method,
+			"remote_addr", r.RemoteAddr,
+		)
 		http.NotFound(w, r)
 		return
 	}
+	s.logger.Info("webhook request received",
+		"webhook_name", webhookCfg.Name,
+		"path", r.URL.Path,
+		"method", r.Method,
+		"remote_addr", r.RemoteAddr,
+		"user_agent", r.UserAgent(),
+	)
 	if r.Method != http.MethodPost {
+		s.logger.Warn("webhook rejected because method is not POST",
+			"webhook_name", webhookCfg.Name,
+			"method", r.Method,
+		)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if webhookCfg.Authorization != "" && r.Header.Get("Authorization") != webhookCfg.Authorization {
+		s.logger.Warn("webhook authorization failed",
+			"webhook_name", webhookCfg.Name,
+			"path", r.URL.Path,
+		)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
 	if err != nil {
+		s.logger.Error("failed to read webhook body",
+			"webhook_name", webhookCfg.Name,
+			"err", err,
+		)
 		http.Error(w, "failed to read body", http.StatusBadRequest)
 		return
 	}
 
 	eventID := digestForBody(body)
+	s.logger.Info("webhook body accepted",
+		"webhook_name", webhookCfg.Name,
+		"event_id", eventID,
+		"body_bytes", len(body),
+		"body", formatWebhookBodyForLog(body),
+	)
 	if s.store.EventExists(eventID) {
+		s.logger.Info("webhook ignored because event already exists",
+			"webhook_name", webhookCfg.Name,
+			"event_id", eventID,
+		)
 		writeJSON(w, http.StatusAccepted, map[string]any{
 			"status":   "duplicate",
 			"event_id": eventID,
@@ -118,6 +152,11 @@ func (s *Service) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	var payload harborWebhookPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
+		s.logger.Warn("webhook payload is not valid json",
+			"webhook_name", webhookCfg.Name,
+			"event_id", eventID,
+			"err", err,
+		)
 		http.Error(w, "invalid json payload", http.StatusBadRequest)
 		return
 	}
@@ -127,6 +166,11 @@ func (s *Service) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		eventData = payload.Data
 	}
 	if !isPushEvent(payload.Type) {
+		s.logger.Info("webhook ignored because event type is unsupported",
+			"webhook_name", webhookCfg.Name,
+			"event_id", eventID,
+			"event_type", payload.Type,
+		)
 		writeJSON(w, http.StatusAccepted, map[string]any{
 			"status":   "ignored",
 			"event_id": eventID,
@@ -141,12 +185,33 @@ func (s *Service) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		repoName = eventData.Repository.FullName
 	}
 	if repoName == "" {
+		s.logger.Warn("webhook payload missing repository name",
+			"webhook_name", webhookCfg.Name,
+			"event_id", eventID,
+		)
 		http.Error(w, "repository name missing", http.StatusBadRequest)
 		return
 	}
+	s.logger.Info("webhook repository parsed",
+		"webhook_name", webhookCfg.Name,
+		"event_id", eventID,
+		"event_type", payload.Type,
+		"repository", repoName,
+		"resource_count", len(eventData.Resources),
+	)
 
 	grouped := groupResourcesByDigest(eventData.Resources)
+	s.logger.Info("webhook resources grouped by digest",
+		"webhook_name", webhookCfg.Name,
+		"event_id", eventID,
+		"grouped_resources", grouped,
+	)
 	if len(grouped) == 0 {
+		s.logger.Info("webhook ignored because no tagged resources were found",
+			"webhook_name", webhookCfg.Name,
+			"event_id", eventID,
+			"repository", repoName,
+		)
 		writeJSON(w, http.StatusAccepted, map[string]any{
 			"status":   "ignored",
 			"event_id": eventID,
@@ -162,6 +227,11 @@ func (s *Service) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	tasks := s.buildTasks(eventID, payload.Type, payload.Operator, repoName, grouped, sourceRegistry, webhookCfg.Name)
 
 	if len(tasks) == 0 {
+		s.logger.Info("webhook produced no tasks after route evaluation",
+			"webhook_name", webhookCfg.Name,
+			"event_id", eventID,
+			"repository", repoName,
+		)
 		writeJSON(w, http.StatusAccepted, map[string]any{
 			"status":   "ignored",
 			"event_id": eventID,
@@ -175,6 +245,13 @@ func (s *Service) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to persist tasks", http.StatusInternalServerError)
 		return
 	}
+	s.logger.Info("webhook queued tasks successfully",
+		"webhook_name", webhookCfg.Name,
+		"event_id", eventID,
+		"repository", repoName,
+		"task_count", len(tasks),
+		"target_sites", collectSites(tasks),
+	)
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"status":       "queued",
@@ -199,9 +276,12 @@ func (s *Service) TriggerCallback(ctx context.Context, task *Task) error {
 		"repository":        task.Repository,
 		"digest":            task.Digest,
 		"tags":              task.Tags,
+		"source_pull_ref":   task.SourcePullRef,
+		"source_refs":       task.SourceRefs,
 		"target_registry":   task.TargetRegistry,
 		"target_repository": task.TargetRepository,
 		"target_refs":       task.TargetRefs,
+		"target_ref_descriptors": task.TargetRefDescriptors,
 		"message":           task.Message,
 		"updated_at":        task.UpdatedAt,
 	}
@@ -219,6 +299,11 @@ func (s *Service) TriggerCallback(ctx context.Context, task *Task) error {
 	if task.CallbackToken != "" {
 		req.Header.Set("Authorization", "Bearer "+task.CallbackToken)
 	}
+	s.logger.Info("triggering callback",
+		"task_id", task.ID,
+		"site_name", task.SiteName,
+		"callback_url", task.CallbackURL,
+	)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -229,6 +314,11 @@ func (s *Service) TriggerCallback(ctx context.Context, task *Task) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("callback status %d", resp.StatusCode)
 	}
+	s.logger.Info("callback finished successfully",
+		"task_id", task.ID,
+		"site_name", task.SiteName,
+		"status_code", resp.StatusCode,
+	)
 	return nil
 }
 
@@ -249,12 +339,28 @@ func (s *Service) buildTasksFromRoutes(eventID, eventType, operator, repoName st
 
 	for _, route := range s.cfg.Routes {
 		if !route.IsEnabled() {
+			s.logger.Info("route skipped because it is disabled",
+				"route_name", route.Name,
+				"repository", repoName,
+				"webhook_name", webhookName,
+			)
 			continue
 		}
 		if !route.AllowsWebhook(webhookName) {
+			s.logger.Info("route skipped because webhook is not allowed",
+				"route_name", route.Name,
+				"repository", repoName,
+				"webhook_name", webhookName,
+			)
 			continue
 		}
 		if !matchesRepository(route.RepositoryPatterns, repoName) {
+			s.logger.Info("route skipped because repository did not match",
+				"route_name", route.Name,
+				"repository", repoName,
+				"webhook_name", webhookName,
+				"patterns", route.RepositoryPatterns,
+			)
 			continue
 		}
 
@@ -262,16 +368,29 @@ func (s *Service) buildTasksFromRoutes(eventID, eventType, operator, repoName st
 		if channel == "" {
 			channel = route.Name
 		}
+		s.logger.Info("route matched repository",
+			"route_name", route.Name,
+			"channel", channel,
+			"repository", repoName,
+			"target_sites", route.TargetSites,
+			"webhook_name", webhookName,
+		)
 
 		// 一次 Harbor 事件可能要下发给多个远端站点。
 		// route 决定逻辑 channel，target_sites 决定哪些站点订阅这个 channel。
 		for _, siteName := range route.TargetSites {
 			target, ok := s.targets[siteName]
 			if !ok || !target.IsEnabled() {
+				s.logger.Warn("target site skipped because it is missing or disabled",
+					"route_name", route.Name,
+					"site_name", siteName,
+					"repository", repoName,
+				)
 				continue
 			}
-			targetRepo := buildTargetRepository(target.RepositoryPrefix, repoName)
+			targetRepo := buildTargetRepository(target.RepositoryPrefix, target.TargetProject, repoName)
 			for digest, tags := range grouped {
+				sourcePullRef, sourceRefs := buildSourceReferences(sourceRegistry, repoName, digest, tags)
 				key := logicalTaskKey(siteName, channel, repoName, digest)
 				if _, ok := seen[key]; ok {
 					continue
@@ -286,6 +405,8 @@ func (s *Service) buildTasksFromRoutes(eventID, eventType, operator, repoName st
 					Repository:       repoName,
 					Digest:           digest,
 					Tags:             tags,
+					SourcePullRef:    sourcePullRef,
+					SourceRefs:       sourceRefs,
 					TargetRegistry:   target.TargetRegistry,
 					TargetRepository: targetRepo,
 					CallbackURL:      target.CallbackURL,
@@ -297,10 +418,22 @@ func (s *Service) buildTasksFromRoutes(eventID, eventType, operator, repoName st
 						"route_name":        route.Name,
 						"route_channel":     channel,
 						"webhook_name":      webhookName,
+						"target_project":    target.TargetProject,
 					},
 					CreatedAt: now,
 					UpdatedAt: now,
 				})
+				s.logger.Info("task created from route",
+					"task_id", tasks[len(tasks)-1].ID,
+					"route_name", route.Name,
+					"channel", channel,
+					"site_name", siteName,
+					"repository", repoName,
+					"digest", digest,
+					"tags", tags,
+					"source_pull_ref", sourcePullRef,
+					"target_repository", targetRepo,
+				)
 			}
 		}
 	}
@@ -314,13 +447,23 @@ func (s *Service) buildTasksFromTargets(eventID, eventType, operator, repoName s
 
 	for _, target := range s.cfg.Targets {
 		if !target.IsEnabled() {
+			s.logger.Info("target skipped because it is disabled",
+				"site_name", target.SiteName,
+				"repository", repoName,
+			)
 			continue
 		}
 		if !matchesRepository(target.RepositoryPatterns, repoName) {
+			s.logger.Info("target skipped because repository did not match",
+				"site_name", target.SiteName,
+				"repository", repoName,
+				"patterns", target.RepositoryPatterns,
+			)
 			continue
 		}
-		targetRepo := buildTargetRepository(target.RepositoryPrefix, repoName)
+		targetRepo := buildTargetRepository(target.RepositoryPrefix, target.TargetProject, repoName)
 		for digest, tags := range grouped {
+			sourcePullRef, sourceRefs := buildSourceReferences(sourceRegistry, repoName, digest, tags)
 			key := logicalTaskKey(target.SiteName, "default", repoName, digest)
 			if _, ok := seen[key]; ok {
 				continue
@@ -335,6 +478,8 @@ func (s *Service) buildTasksFromTargets(eventID, eventType, operator, repoName s
 				Repository:       repoName,
 				Digest:           digest,
 				Tags:             tags,
+				SourcePullRef:    sourcePullRef,
+				SourceRefs:       sourceRefs,
 				TargetRegistry:   target.TargetRegistry,
 				TargetRepository: targetRepo,
 				CallbackURL:      target.CallbackURL,
@@ -344,10 +489,20 @@ func (s *Service) buildTasksFromTargets(eventID, eventType, operator, repoName s
 					"harbor_event_type": eventType,
 					"operator":          operator,
 					"webhook_name":      webhookName,
+					"target_project":    target.TargetProject,
 				},
 				CreatedAt: now,
 				UpdatedAt: now,
 			})
+			s.logger.Info("task created from target fallback",
+				"task_id", tasks[len(tasks)-1].ID,
+				"site_name", target.SiteName,
+				"repository", repoName,
+				"digest", digest,
+				"tags", tags,
+				"source_pull_ref", sourcePullRef,
+				"target_repository", targetRepo,
+			)
 		}
 	}
 	return tasks
@@ -394,12 +549,36 @@ func matchesRepository(patterns []string, repository string) bool {
 	return false
 }
 
-func buildTargetRepository(prefix, repository string) string {
+func buildTargetRepository(prefix, targetProject, repository string) string {
+	if targetProject != "" {
+		repository = rewriteRepositoryProject(repository, targetProject)
+	}
 	prefix = strings.Trim(prefix, "/")
 	if prefix == "" {
 		return repository
 	}
 	return path.Join(prefix, repository)
+}
+
+func rewriteRepositoryProject(repository, targetProject string) string {
+	targetProject = strings.Trim(targetProject, "/")
+	if targetProject == "" {
+		return repository
+	}
+	parts := strings.SplitN(strings.Trim(repository, "/"), "/", 2)
+	if len(parts) == 1 {
+		return targetProject
+	}
+	return path.Join(targetProject, parts[1])
+}
+
+func buildSourceReferences(sourceRegistry, repository, digest string, tags []string) (string, []string) {
+	sourcePullRef := fmt.Sprintf("%s/%s@%s", sourceRegistry, repository, digest)
+	refs := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		refs = append(refs, fmt.Sprintf("%s/%s:%s@%s", sourceRegistry, repository, tag, digest))
+	}
+	return sourcePullRef, refs
 }
 
 func buildTaskID(siteName, channel, repository, digest string) string {
@@ -443,6 +622,14 @@ func collectSites(tasks []*Task) []string {
 		sites = append(sites, task.SiteName)
 	}
 	return sites
+}
+
+func formatWebhookBodyForLog(body []byte) string {
+	const maxLogBodyBytes = 64 << 10
+	if len(body) <= maxLogBodyBytes {
+		return string(body)
+	}
+	return string(body[:maxLogBodyBytes]) + "...<truncated>"
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

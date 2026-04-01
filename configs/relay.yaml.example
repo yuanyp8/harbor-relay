@@ -1,5 +1,11 @@
 service_name: harbor-relay
+
+# Harbor webhook 如果要从局域网或外部入口打进来，这里不要只绑 127.0.0.1。
+# 单机本地调试可以用 127.0.0.1:18080；
+# 真正接 Harbor webhook 时，更常见的是 0.0.0.0:18080。
 http_listen: 127.0.0.1:18080
+
+# gRPC 一般建议只让 Caddy 或本机代理接入，所以默认保留本地监听。
 grpc_listen: 127.0.0.1:19090
 data_file: /data/harbor-relay/relay-state.json
 
@@ -67,7 +73,16 @@ targets:
     site_name: dc1
     enabled: true
     target_registry: sealos.hub:5000
+
+    # 如果你只是想给目标仓库前面统一加一层前缀，可以用 repository_prefix。
+    # 例如 source 是 kube4/mysql，prefix 是 mirror，则目标会变成 mirror/kube4/mysql。
     repository_prefix: ""
+
+    # 如果你想把“项目名”整体改写掉，推荐用 target_project。
+    # 例如 source 是 yunnan-mid/registry-photon，target_project 是 yunnan-mid-test，
+    # 则目标会变成 yunnan-mid-test/registry-photon。
+    target_project: ""
+
     callback_url: "https://ops.hm.metavarse.tech/api/image-sync/callback"
     callback_token: "replace-with-callback-token"
 

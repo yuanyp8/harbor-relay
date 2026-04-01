@@ -52,6 +52,13 @@ func (s *GRPCServer) Connect(stream relayv1.RelayService_ConnectServer) error {
 		LastSeenAt:   time.Now(),
 		ConnectedAt:  time.Now(),
 	}
+	s.logger.Info("agent hello received",
+		"agent_id", agent.AgentID,
+		"site_name", agent.SiteName,
+		"channels", agent.Channels,
+		"version", agent.Version,
+		"capabilities", agent.Capabilities,
+	)
 	if err := s.service.store.UpsertAgent(agent); err != nil {
 		return status.Errorf(codes.Internal, "failed to upsert agent: %v", err)
 	}
@@ -71,6 +78,7 @@ func (s *GRPCServer) Connect(stream relayv1.RelayService_ConnectServer) error {
 	}
 
 	defer func() {
+		s.logger.Info("agent disconnected", "agent_id", hello.AgentId, "site_name", hello.SiteName)
 		if err := s.service.store.MarkAgentOffline(hello.AgentId); err != nil {
 			s.logger.Error("mark agent offline failed", "agent_id", hello.AgentId, "err", err)
 		}
@@ -87,6 +95,10 @@ func (s *GRPCServer) Connect(stream relayv1.RelayService_ConnectServer) error {
 
 		switch payload := msg.Payload.(type) {
 		case *relayv1.AgentMessage_Heartbeat:
+			s.logger.Info("agent heartbeat received",
+				"agent_id", hello.AgentId,
+				"site_name", hello.SiteName,
+			)
 			if err := s.service.store.MarkHeartbeat(hello.AgentId); err != nil {
 				return status.Errorf(codes.Internal, "heartbeat failed: %v", err)
 			}
@@ -94,12 +106,21 @@ func (s *GRPCServer) Connect(stream relayv1.RelayService_ConnectServer) error {
 				return err
 			}
 		case *relayv1.AgentMessage_Progress:
+			s.logger.Info("agent progress received",
+				"agent_id", hello.AgentId,
+				"task_id", payload.Progress.TaskId,
+				"status", payload.Progress.Status.String(),
+				"message", payload.Progress.Message,
+				"target_refs", payload.Progress.TargetRefs,
+				"target_ref_descriptors", payload.Progress.TargetRefDescriptors,
+			)
 			task, err := s.service.store.UpdateTaskProgress(
 				hello.AgentId,
 				payload.Progress.TaskId,
 				payload.Progress.Status,
 				payload.Progress.Message,
 				payload.Progress.TargetRefs,
+				payload.Progress.TargetRefDescriptors,
 			)
 			if err != nil {
 				return status.Errorf(codes.Internal, "update progress failed: %v", err)
@@ -113,6 +134,7 @@ func (s *GRPCServer) Connect(stream relayv1.RelayService_ConnectServer) error {
 						relayv1.TaskStatus_TASK_STATUS_CALLBACK_PENDING,
 						"callback failed: "+cbErr.Error(),
 						payload.Progress.TargetRefs,
+						payload.Progress.TargetRefDescriptors,
 					)
 					s.logger.Error("callback failed", "task_id", task.ID, "err", cbErr)
 				}
@@ -137,6 +159,18 @@ func (s *GRPCServer) maybeSendTask(stream relayv1.RelayService_ConnectServer, si
 	if task == nil {
 		return nil
 	}
+	s.logger.Info("task assigned to agent",
+		"agent_id", agentID,
+		"site_name", siteName,
+		"task_id", task.ID,
+		"channel", task.Channel,
+		"repository", task.Repository,
+		"digest", task.Digest,
+		"tags", task.Tags,
+		"source_pull_ref", task.SourcePullRef,
+		"source_refs", task.SourceRefs,
+		"target_repository", task.TargetRepository,
+	)
 
 	return stream.Send(&relayv1.RelayMessage{
 		Payload: &relayv1.RelayMessage_Task{
@@ -153,6 +187,8 @@ func (s *GRPCServer) maybeSendTask(stream relayv1.RelayService_ConnectServer, si
 				CallbackUrl:      task.CallbackURL,
 				Metadata:         task.Metadata,
 				Channel:          task.Channel,
+				SourcePullRef:    task.SourcePullRef,
+				SourceRefs:       task.SourceRefs,
 			},
 		},
 	})

@@ -17,6 +17,8 @@ type Task struct {
 	Repository       string             `json:"repository"`
 	Digest           string             `json:"digest"`
 	Tags             []string           `json:"tags"`
+	SourcePullRef    string             `json:"source_pull_ref,omitempty"`
+	SourceRefs       []string           `json:"source_refs,omitempty"`
 	TargetRegistry   string             `json:"target_registry"`
 	TargetRepository string             `json:"target_repository"`
 	CallbackURL      string             `json:"callback_url,omitempty"`
@@ -26,6 +28,7 @@ type Task struct {
 	AssignedAgentID  string             `json:"assigned_agent_id,omitempty"`
 	Message          string             `json:"message,omitempty"`
 	TargetRefs       []string           `json:"target_refs,omitempty"`
+	TargetRefDescriptors []string       `json:"target_ref_descriptors,omitempty"`
 	Attempts         int                `json:"attempts"`
 	CreatedAt        time.Time          `json:"created_at"`
 	UpdatedAt        time.Time          `json:"updated_at"`

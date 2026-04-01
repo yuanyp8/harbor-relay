@@ -36,6 +36,7 @@ message TaskProgress {
   TaskStatus status = 2;
   string message = 3;
   repeated string target_refs = 4;
+  repeated string target_ref_descriptors = 5;
 }
 
 message AgentMessage {
@@ -63,6 +64,8 @@ message TaskAssignment {
   string callback_url = 10;
   map<string, string> metadata = 11;
   string channel = 12;
+  string source_pull_ref = 13;
+  repeated string source_refs = 14;
 }
 
 message RelayMessage {

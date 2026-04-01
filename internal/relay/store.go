@@ -212,14 +212,16 @@ func (s *Store) AssignNextTask(siteName string, channels []string, agentID strin
 
 	taskCopy := *selected
 	taskCopy.Tags = slices.Clone(selected.Tags)
+	taskCopy.SourceRefs = slices.Clone(selected.SourceRefs)
 	taskCopy.TargetRefs = slices.Clone(selected.TargetRefs)
+	taskCopy.TargetRefDescriptors = slices.Clone(selected.TargetRefDescriptors)
 	taskCopy.Metadata = cloneMap(selected.Metadata)
 	return &taskCopy, nil
 }
 
 // UpdateTaskProgress 持久化 agent 上报的最新任务状态。
 // 如果任务已经进入最终状态，还会顺手释放 agent 的 current task 占位。
-func (s *Store) UpdateTaskProgress(agentID, taskID string, status relayv1.TaskStatus, message string, targetRefs []string) (*Task, error) {
+func (s *Store) UpdateTaskProgress(agentID, taskID string, status relayv1.TaskStatus, message string, targetRefs, targetRefDescriptors []string) (*Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -230,6 +232,7 @@ func (s *Store) UpdateTaskProgress(agentID, taskID string, status relayv1.TaskSt
 	task.Status = status
 	task.Message = message
 	task.TargetRefs = slices.Clone(targetRefs)
+	task.TargetRefDescriptors = slices.Clone(targetRefDescriptors)
 	task.UpdatedAt = time.Now()
 
 	if agent, ok := s.state.Agents[agentID]; ok {
@@ -246,7 +249,9 @@ func (s *Store) UpdateTaskProgress(agentID, taskID string, status relayv1.TaskSt
 
 	taskCopy := *task
 	taskCopy.Tags = slices.Clone(task.Tags)
+	taskCopy.SourceRefs = slices.Clone(task.SourceRefs)
 	taskCopy.TargetRefs = slices.Clone(task.TargetRefs)
+	taskCopy.TargetRefDescriptors = slices.Clone(task.TargetRefDescriptors)
 	taskCopy.Metadata = cloneMap(task.Metadata)
 	return &taskCopy, nil
 }
@@ -259,7 +264,9 @@ func (s *Store) ListTasks() []*Task {
 	for _, task := range s.state.Tasks {
 		taskCopy := *task
 		taskCopy.Tags = slices.Clone(task.Tags)
+		taskCopy.SourceRefs = slices.Clone(task.SourceRefs)
 		taskCopy.TargetRefs = slices.Clone(task.TargetRefs)
+		taskCopy.TargetRefDescriptors = slices.Clone(task.TargetRefDescriptors)
 		taskCopy.Metadata = cloneMap(task.Metadata)
 		result = append(result, &taskCopy)
 	}
@@ -309,7 +316,9 @@ func (s *Store) GetTask(taskID string) (*Task, bool) {
 	}
 	taskCopy := *task
 	taskCopy.Tags = slices.Clone(task.Tags)
+	taskCopy.SourceRefs = slices.Clone(task.SourceRefs)
 	taskCopy.TargetRefs = slices.Clone(task.TargetRefs)
+	taskCopy.TargetRefDescriptors = slices.Clone(task.TargetRefDescriptors)
 	taskCopy.Metadata = cloneMap(task.Metadata)
 	return &taskCopy, true
 }

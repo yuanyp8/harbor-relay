@@ -48,6 +48,7 @@ type TargetConfig struct {
 	SiteName           string   `yaml:"site_name"`
 	Enabled            *bool    `yaml:"enabled"`
 	TargetRegistry     string   `yaml:"target_registry"`
+	TargetProject      string   `yaml:"target_project"`
 	RepositoryPrefix   string   `yaml:"repository_prefix"`
 	RepositoryPatterns []string `yaml:"repository_patterns"`
 	CallbackURL        string   `yaml:"callback_url"`

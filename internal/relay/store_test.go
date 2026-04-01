@@ -86,12 +86,22 @@ func TestUpdateTaskProgress_FinalClearsCurrentTask(t *testing.T) {
 		t.Fatalf("add tasks failed: %v", err)
 	}
 
-	task, err := store.UpdateTaskProgress("agent-1", "task-1", relayv1.TaskStatus_TASK_STATUS_DONE, "ok", []string{"sealos.hub:5000/kube4/mysql:8.0.45"})
+	task, err := store.UpdateTaskProgress(
+		"agent-1",
+		"task-1",
+		relayv1.TaskStatus_TASK_STATUS_DONE,
+		"ok",
+		[]string{"sealos.hub:5000/kube4/mysql:8.0.45"},
+		[]string{"sealos.hub:5000/kube4/mysql:8.0.45@sha256:abc"},
+	)
 	if err != nil {
 		t.Fatalf("update task progress failed: %v", err)
 	}
 	if task.Status != relayv1.TaskStatus_TASK_STATUS_DONE {
 		t.Fatalf("unexpected task status: %v", task.Status)
+	}
+	if len(task.TargetRefDescriptors) != 1 {
+		t.Fatalf("expected one target ref descriptor, got %d", len(task.TargetRefDescriptors))
 	}
 
 	agents := store.ListAgents()

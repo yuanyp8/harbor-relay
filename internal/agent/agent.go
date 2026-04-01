@@ -120,42 +120,56 @@ func (a *Agent) handleTask(ctx context.Context, stream relayv1.RelayService_Conn
 		"channel", task.Channel,
 		"repository", task.Repository,
 		"digest", task.Digest,
+		"tags", task.Tags,
+		"source_pull_ref", task.SourcePullRef,
+		"source_refs", task.SourceRefs,
+		"target_repository", task.TargetRepository,
 	)
 
-	if err := a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_PULLING, "pulling source image", nil); err != nil {
+	if err := a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_PULLING, "pulling source image", nil, nil); err != nil {
 		return err
 	}
 
 	if err := a.login(ctx, task.SourceRegistry, a.cfg.SourceUsername, a.cfg.SourcePassword); err != nil {
-		return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "source login failed: "+err.Error(), nil)
+		return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "source login failed: "+err.Error(), nil, nil)
 	}
 	if err := a.login(ctx, task.TargetRegistry, a.cfg.TargetUsername, a.cfg.TargetPassword); err != nil {
-		return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "target login failed: "+err.Error(), nil)
+		return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "target login failed: "+err.Error(), nil, nil)
 	}
 
-	sourceRef := fmt.Sprintf("%s/%s@%s", task.SourceRegistry, task.Repository, task.Digest)
+	sourceRef := task.SourcePullRef
+	if sourceRef == "" {
+		sourceRef = fmt.Sprintf("%s/%s@%s", task.SourceRegistry, task.Repository, task.Digest)
+	}
 	if err := a.runDocker(ctx, "pull", sourceRef); err != nil {
-		return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "docker pull failed: "+err.Error(), nil)
+		return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "docker pull failed: "+err.Error(), nil, nil)
 	}
 
 	if len(task.Tags) == 0 {
-		return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "no usable tags found in task", nil)
+		return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "no usable tags found in task", nil, nil)
 	}
 
-	if err := a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_PUSHING, "pushing target image", nil); err != nil {
+	if err := a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_PUSHING, "pushing target image", nil, nil); err != nil {
 		return err
 	}
 
 	targetRefs := make([]string, 0, len(task.Tags))
+	targetRefDescriptors := make([]string, 0, len(task.Tags))
 	for _, tag := range task.Tags {
 		targetRef := fmt.Sprintf("%s/%s:%s", task.TargetRegistry, task.TargetRepository, tag)
 		if err := a.runDocker(ctx, "tag", sourceRef, targetRef); err != nil {
-			return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "docker tag failed: "+err.Error(), targetRefs)
+			return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "docker tag failed: "+err.Error(), targetRefs, targetRefDescriptors)
 		}
 		if err := a.runDocker(ctx, "push", targetRef); err != nil {
-			return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "docker push failed: "+err.Error(), targetRefs)
+			return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "docker push failed: "+err.Error(), targetRefs, targetRefDescriptors)
 		}
 		targetRefs = append(targetRefs, targetRef)
+		targetRefDescriptors = append(targetRefDescriptors, fmt.Sprintf("%s@%s", targetRef, task.Digest))
+		a.logger.Info("target ref pushed",
+			"task_id", task.TaskId,
+			"target_ref", targetRef,
+			"target_ref_descriptor", targetRefDescriptors[len(targetRefDescriptors)-1],
+		)
 	}
 
 	if a.cfg.CleanupLocalImages {
@@ -165,18 +179,19 @@ func (a *Agent) handleTask(ctx context.Context, stream relayv1.RelayService_Conn
 		_ = a.runDocker(ctx, "image", "rm", "-f", sourceRef)
 	}
 
-	return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_DONE, "image sync completed", targetRefs)
+	return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_DONE, "image sync completed", targetRefs, targetRefDescriptors)
 }
 
 // sendProgress 把当前任务进度回报给 relay。
-func (a *Agent) sendProgress(stream relayv1.RelayService_ConnectClient, taskID string, status relayv1.TaskStatus, message string, refs []string) error {
+func (a *Agent) sendProgress(stream relayv1.RelayService_ConnectClient, taskID string, status relayv1.TaskStatus, message string, refs, descriptors []string) error {
 	return stream.Send(&relayv1.AgentMessage{
 		Payload: &relayv1.AgentMessage_Progress{
 			Progress: &relayv1.TaskProgress{
-				TaskId:     taskID,
-				Status:     status,
-				Message:    message,
-				TargetRefs: refs,
+				TaskId:               taskID,
+				Status:               status,
+				Message:              message,
+				TargetRefs:           refs,
+				TargetRefDescriptors: descriptors,
 			},
 		},
 	})

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +18,11 @@ import (
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func bufferedTestLogger() (*slog.Logger, *bytes.Buffer) {
+	buf := &bytes.Buffer{}
+	return slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})), buf
 }
 
 // TestHandleWebhook_QueuesTasksByRouteAndChannel 验证最核心的主链路：
@@ -257,8 +263,12 @@ func TestTriggerCallback(t *testing.T) {
 		Repository:       "kube4/mysql",
 		Digest:           "sha256:test",
 		Tags:             []string{"8.0.45"},
+		SourcePullRef:    "image.hm.metavarse.tech:9443/kube4/mysql@sha256:test",
+		SourceRefs:       []string{"image.hm.metavarse.tech:9443/kube4/mysql:8.0.45@sha256:test"},
 		TargetRegistry:   "sealos.hub:5000",
 		TargetRepository: "kube4/mysql",
+		TargetRefs:       []string{"sealos.hub:5000/kube4/mysql:8.0.45"},
+		TargetRefDescriptors: []string{"sealos.hub:5000/kube4/mysql:8.0.45@sha256:test"},
 		CallbackURL:      callbackServer.URL,
 		CallbackToken:    "callback-token",
 		Status:           relayv1.TaskStatus_TASK_STATUS_DONE,
@@ -270,6 +280,122 @@ func TestTriggerCallback(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("expected callback server to be called")
+	}
+}
+
+func TestHandleWebhook_LogsDetailedProcessingFlow(t *testing.T) {
+	store, err := NewStore("")
+	if err != nil {
+		t.Fatalf("new store failed: %v", err)
+	}
+
+	cfg := config.RelayConfig{
+		SourceRegistry: "image.hm.metavarse.tech:9443",
+		Webhooks: []config.WebhookConfig{
+			{Name: "yunnan", Path: "/api/v1/harbor/webhook/yunnan", Authorization: "Bearer test-secret"},
+		},
+		Routes: []config.RouteConfig{
+			{
+				Name:               "yunnan-route",
+				Channel:            "yunnan-mid",
+				WebhookNames:       []string{"yunnan"},
+				RepositoryPatterns: []string{"yunnan-mid/**"},
+				TargetSites:        []string{"local-test"},
+			},
+		},
+		Targets: []config.TargetConfig{
+			{
+				Name:           "local-test",
+				SiteName:       "local-test",
+				TargetRegistry: "image.hm.metavarse.tech:9443",
+				TargetProject:  "yunnan-mid-test",
+			},
+		},
+	}
+
+	logger, logBuf := bufferedTestLogger()
+	service := NewService(cfg, store, logger)
+	body := []byte(`{"type":"PUSH_ARTIFACT","event_data":{"repository":{"repo_full_name":"yunnan-mid/registry-photon"},"resources":[{"digest":"sha256:cccc","tag":"v2.15.0"}]}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/harbor/webhook/yunnan", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-secret")
+	rr := httptest.NewRecorder()
+
+	service.HandleWebhook(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	logs := logBuf.String()
+	for _, want := range []string{
+		"webhook request received",
+		"webhook body accepted",
+		"yunnan-mid/registry-photon",
+		"webhook resources grouped by digest",
+		"route matched repository",
+		"task created from route",
+		"webhook queued tasks successfully",
+	} {
+		if !strings.Contains(logs, want) {
+			t.Fatalf("expected logs to contain %q, got:\n%s", want, logs)
+		}
+	}
+}
+
+func TestHandleWebhook_TargetProjectRewriteAndSourceRefs(t *testing.T) {
+	store, err := NewStore("")
+	if err != nil {
+		t.Fatalf("new store failed: %v", err)
+	}
+
+	cfg := config.RelayConfig{
+		SourceRegistry: "image.hm.metavarse.tech:9443",
+		Webhooks: []config.WebhookConfig{
+			{Name: "yunnan", Path: "/api/v1/harbor/webhook/yunnan"},
+		},
+		Routes: []config.RouteConfig{
+			{
+				Name:               "yunnan-route",
+				Channel:            "yunnan-mid",
+				WebhookNames:       []string{"yunnan"},
+				RepositoryPatterns: []string{"yunnan-mid/**"},
+				TargetSites:        []string{"local-test"},
+			},
+		},
+		Targets: []config.TargetConfig{
+			{
+				Name:           "local-test",
+				SiteName:       "local-test",
+				TargetRegistry: "image.hm.metavarse.tech:9443",
+				TargetProject:  "yunnan-mid-test",
+			},
+		},
+	}
+
+	service := NewService(cfg, store, testLogger())
+	body := []byte(`{"type":"PUSH_ARTIFACT","event_data":{"repository":{"repo_full_name":"yunnan-mid/registry-photon"},"resources":[{"digest":"sha256:cccc","tag":"v2.15.0"}]}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/harbor/webhook/yunnan", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+
+	service.HandleWebhook(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	tasks := store.ListTasks()
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	task := tasks[0]
+	if task.TargetRepository != "yunnan-mid-test/registry-photon" {
+		t.Fatalf("unexpected target repository: %s", task.TargetRepository)
+	}
+	if task.SourcePullRef != "image.hm.metavarse.tech:9443/yunnan-mid/registry-photon@sha256:cccc" {
+		t.Fatalf("unexpected source pull ref: %s", task.SourcePullRef)
+	}
+	if len(task.SourceRefs) != 1 || task.SourceRefs[0] != "image.hm.metavarse.tech:9443/yunnan-mid/registry-photon:v2.15.0@sha256:cccc" {
+		t.Fatalf("unexpected source refs: %#v", task.SourceRefs)
 	}
 }
 

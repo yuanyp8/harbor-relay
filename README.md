@@ -116,6 +116,14 @@ mkdir -p /etc/harbor-relay /data/harbor-relay
 cp configs/relay.yaml.example /etc/harbor-relay/relay.yaml
 ```
 
+如果 Harbor 是通过局域网或 Caddy 反向代理来打 webhook，记得把：
+
+```yaml
+http_listen: 0.0.0.0:18080
+```
+
+否则只监听 `127.0.0.1` 时，Harbor 是打不进来的。
+
 2. 构建二进制
 
 ```bash
@@ -189,6 +197,48 @@ curl -kI --resolve relay.hm.metavarse.tech:9443:127.0.0.1 https://relay.hm.metav
 curl http://127.0.0.1:18080/api/v1/agents
 curl http://127.0.0.1:18080/api/v1/tasks
 ```
+
+## 同机测试 source / target 项目
+
+如果你想在同一台 Harbor 服务器上测试“源项目推送 -> relay -> 目标项目同步”，推荐这样配：
+
+```yaml
+targets:
+  - name: yunnan-mid
+    site_name: yunnan-mid
+    target_registry: image.hm.metavarse.tech:9443
+    target_project: yunnan-mid-test
+```
+
+这样当源仓库是：
+
+```text
+yunnan-mid/registry-photon
+```
+
+目标仓库就会被改写成：
+
+```text
+yunnan-mid-test/registry-photon
+```
+
+这比单纯用 `repository_prefix` 更适合“项目级改写”的场景。
+
+## 可观测性说明
+
+现在 relay 默认会把这些过程都打印到标准输出：
+
+- `/healthz` 请求
+- `/api/v1/tasks`、`/api/v1/agents` 请求
+- 每一次 webhook 接收
+- webhook 鉴权失败、重复事件、无匹配路由、入队成功
+- route 命中 / 跳过原因
+- gRPC agent hello / heartbeat / 断开
+- 任务派发
+- agent progress
+- callback 调用结果
+
+也就是说，只要 Harbor webhook 真正打进 relay，不管成功还是失败，日志里都会留下处理轨迹。
 
 ## GitHub Actions
 
