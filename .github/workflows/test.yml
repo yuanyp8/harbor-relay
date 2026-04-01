@@ -71,3 +71,13 @@ jobs:
 
       - name: Build documentation site
         run: npm run build
+
+  docs-image-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build docs container image
+        run: |
+          docker build -t harbor-relay-docs:smoke -f website/Dockerfile .

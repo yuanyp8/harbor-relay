@@ -206,40 +206,49 @@ systemctl status harbor-relay-agent --no-pager
 
 ## 文档站部署建议
 
+文档站现在支持两种模式：
+
+### 模式 A：挂载式
+
+适合：
+
+- 文档改动频繁
+- 需要运维直接在宿主机修改源文档并重建
+
+参考：
+
+- `website/deploy/install-docs-site.sh`
+
+### 模式 B：镜像式
+
+适合：
+
+- GitHub 统一构建 docs 镜像
+- 服务器只拉镜像运行
+- 想减少服务器上的构建依赖
+
+参考：
+
+- `website/deploy/install-docs-image.sh`
+- `.github/workflows/docs-image.yml`
+
 如果你准备把文档站挂到：
 
 - `docs.image.hm.metavarse.tech:9443`
 
-推荐使用挂载式部署，而不是每次改文档都重做运行镜像。
+我更推荐生产环境用镜像模式。
 
-建议目录：
-
-- 文档源码：
-  - `/opt/release/src/00-utils/harbor-relay`
-- 部署目录：
-  - `/opt/harbor-relay-docs`
-- 静态站点目录：
-  - `/data/harbor-relay-docs/site`
-
-推荐直接使用：
+示例：
 
 ```bash
 cd /opt/release/src/00-utils/harbor-relay/website/deploy
-sudo ./install-docs-site.sh install \
-  --repo-src /opt/release/src/00-utils/harbor-relay \
-  --deploy-dir /opt/harbor-relay-docs \
-  --data-dir /data/harbor-relay-docs \
+sudo ./install-docs-image.sh install \
+  --image ghcr.io/yuanyp8/harbor-relay-docs:main \
   --domain docs.image.hm.metavarse.tech \
   --port 18081
 ```
 
-后续改文档时，只需要：
-
-```bash
-sudo /opt/harbor-relay-docs/bin/rebuild-docs-site.sh
-```
-
-这样运行容器不需要重建，Caddy 继续反代：
+Caddy 继续反代：
 
 - `127.0.0.1:18081`
 
