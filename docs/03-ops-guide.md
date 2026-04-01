@@ -204,6 +204,45 @@ systemctl status harbor-relay-agent --no-pager
 
 - [docs.example.com.9443.caddy](../deploy/caddy/docs.example.com.9443.caddy)
 
+## 文档站部署建议
+
+如果你准备把文档站挂到：
+
+- `docs.image.hm.metavarse.tech:9443`
+
+推荐使用挂载式部署，而不是每次改文档都重做运行镜像。
+
+建议目录：
+
+- 文档源码：
+  - `/opt/release/src/00-utils/harbor-relay`
+- 部署目录：
+  - `/opt/harbor-relay-docs`
+- 静态站点目录：
+  - `/data/harbor-relay-docs/site`
+
+推荐直接使用：
+
+```bash
+cd /opt/release/src/00-utils/harbor-relay/website/deploy
+sudo ./install-docs-site.sh install \
+  --repo-src /opt/release/src/00-utils/harbor-relay \
+  --deploy-dir /opt/harbor-relay-docs \
+  --data-dir /data/harbor-relay-docs \
+  --domain docs.image.hm.metavarse.tech \
+  --port 18081
+```
+
+后续改文档时，只需要：
+
+```bash
+sudo /opt/harbor-relay-docs/bin/rebuild-docs-site.sh
+```
+
+这样运行容器不需要重建，Caddy 继续反代：
+
+- `127.0.0.1:18081`
+
 ## Harbor webhook 配置
 
 建议每个业务项目单独一个 path。
