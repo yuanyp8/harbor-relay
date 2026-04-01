@@ -1,4 +1,5 @@
 ---
+id: ops-guide
 title: 运维部署手册
 sidebar_position: 4
 slug: /03-ops-guide
@@ -6,209 +7,229 @@ slug: /03-ops-guide
 
 # 运维部署手册
 
-这份文档面向部署和维护 `harbor-relay` 的人员。
+本手册面向部署和维护 `harbor-relay` 的运维人员。
 
-## 部署角色
+目标：
 
-通常会有两类节点：
+- 使用 `.run` 安装包标准化安装 relay 和 agent
+- 通过 Caddy 暴露 Harbor、relay 和文档站
+- 正确配置 webhook、route、target、notification、callback
 
-- relay 节点
-  - 接收 webhook
-  - 提供 gRPC 与状态 API
-  - 管理任务、callback 和通知
-- agent 节点
-  - 在目标环境执行 `docker pull / tag / push`
+## 部署建议
 
-## 端口与域名建议
+推荐角色拆分如下：
 
-- Harbor：`registry.example.com:9443`
-- Relay：`relay.example.com:9443`
-- Docs：`docs.example.com:9443`
+- Harbor 所在机器
+  - 安装 `relay`
+  - 可选同时安装 docs 站
+- 每个远端站点
+  - 安装一个或多个 `agent`
 
-Relay 本机可以监听：
+通常不建议在所有机器上同时运行 relay 和 agent。
 
-- HTTP：`127.0.0.1:18080`
-- gRPC：`127.0.0.1:19090`
+## 前置条件
 
-再通过外层 Caddy 统一暴露 `9443`。
+### relay 机器
 
-## 一、准备安装包
+- Linux x86_64 或 arm64
+- `systemd`
+- 网络可被 Harbor webhook 访问
+- 如果对外通过 Caddy 暴露，还需要：
+  - Caddy
+  - 已配置好的 TLS 入口
 
-Linux/macOS：
+### agent 机器
 
-```bash
-./build.sh --arch amd64
-./build.sh --arch arm64
-```
+- Linux x86_64 或 arm64
+- `systemd`
+- Docker 已安装
+- 能访问源仓库
+- 能访问目标仓库
 
-Windows PowerShell：
+## 安装 relay
 
-```powershell
-.\build.ps1 -Arch amd64
-.\build.ps1 -Arch arm64
-```
-
-产物：
-
-- `dist/linux-amd64/harbor-relay-toolkit-linux-amd64.run`
-- `dist/linux-arm64/harbor-relay-toolkit-linux-arm64.run`
-
-## 二、安装 relay
+### 1. 安装程序
 
 ```bash
-chmod +x harbor-relay-toolkit-linux-amd64.run
 sudo ./harbor-relay-toolkit-linux-amd64.run install --role relay
 ```
 
-安装后会生成：
+安装器会放置：
 
 - `/usr/local/bin/harbor-relay`
 - `/etc/harbor-relay/relay.yaml`
 - `/etc/harbor-relay/examples/relay.yaml.example`
 - `/etc/systemd/system/harbor-relay.service`
 
-然后编辑配置：
+### 2. 编辑配置
 
 ```bash
 sudo vi /etc/harbor-relay/relay.yaml
 ```
 
-编辑完成后启用并设置开机自启：
+至少需要填这几类项：
+
+- `webhooks`
+  - `path`
+  - `authorization`
+- `routes`
+  - `repository_patterns`
+  - `channel`
+  - `target_sites`
+- `targets`
+  - `target_registry`
+  - `target_project` 或 `repository_prefix`
+
+### 3. 激活服务
 
 ```bash
 sudo ./harbor-relay-toolkit-linux-amd64.run activate --role relay
 ```
 
-查看状态：
+### 4. 查看状态
 
 ```bash
 sudo ./harbor-relay-toolkit-linux-amd64.run status --role relay
+systemctl status harbor-relay --no-pager
 ```
 
-## 三、安装 agent
+## 安装 agent
+
+### 1. 安装程序
 
 ```bash
-chmod +x harbor-relay-toolkit-linux-amd64.run
 sudo ./harbor-relay-toolkit-linux-amd64.run install --role agent
 ```
 
-安装后会生成：
+安装器会放置：
 
 - `/usr/local/bin/harbor-relay-agent`
 - `/etc/harbor-relay/agent.yaml`
 - `/etc/harbor-relay/examples/agent.yaml.example`
 - `/etc/systemd/system/harbor-relay-agent.service`
 
-编辑 agent 配置：
+### 2. 编辑配置
 
 ```bash
 sudo vi /etc/harbor-relay/agent.yaml
 ```
 
-启用并设置开机自启：
+至少需要填：
+
+- `relay_address`
+- `relay_server_name`
+- `site_name`
+- `channels`
+- `source_registry`
+- `source_username`
+- `source_password`
+- `target_registry`
+- `target_username`
+- `target_password`
+
+### 3. 激活服务
 
 ```bash
 sudo ./harbor-relay-toolkit-linux-amd64.run activate --role agent
 ```
 
-查看状态：
+### 4. 查看状态
 
 ```bash
 sudo ./harbor-relay-toolkit-linux-amd64.run status --role agent
+systemctl status harbor-relay-agent --no-pager
 ```
 
-## 四、relay 配置关键点
+## 配置文件建议
 
-### 1. webhook
+### relay 关键字段
+
+- `http_listen`
+  - Harbor webhook 和状态 API 的监听地址
+- `grpc_listen`
+  - agent 连接的 gRPC 监听地址
+- `webhooks[].path`
+  - Harbor webhook 入口路径
+- `routes[].repository_patterns`
+  - 仓库匹配规则
+- `routes[].channel`
+  - 路由到的逻辑频道
+- `targets[].site_name`
+  - 任务最终派发的站点
+- `targets[].target_registry`
+  - 目标仓库地址
+- `targets[].target_project`
+  - 目标项目改写
+
+### agent 关键字段
+
+- `relay_address`
+  - relay 地址
+- `relay_server_name`
+  - TLS SNI 名称
+- `site_name`
+  - 当前 agent 所属站点
+- `channels`
+  - 当前 agent 消费哪些频道
+- `docker_config_dir`
+  - 独立的 Docker 凭据目录，避免污染 `/root/.docker/config.json`
+
+## Caddy 配置建议
+
+### Harbor
+
+- 域名：`registry.example.com:9443`
+- 反向代理到：
+  - `127.0.0.1:8080`
+
+### Relay
+
+- 域名：`relay.example.com:9443`
+- HTTP 请求转发到：
+  - `127.0.0.1:18080`
+- gRPC 请求转发到：
+  - `h2c://127.0.0.1:19090`
+
+参考：
+
+- [relay.example.com.9443.caddy](../deploy/caddy/relay.example.com.9443.caddy)
+
+### 文档站
+
+- 域名：`docs.example.com:9443`
+- 反向代理到：
+  - `127.0.0.1:18081`
+
+参考：
+
+- [docs.example.com.9443.caddy](../deploy/caddy/docs.example.com.9443.caddy)
+
+## Harbor webhook 配置
+
+建议每个业务项目单独一个 path。
+
+例如：
+
+```text
+https://relay.example.com:9443/api/v1/harbor/webhook/team-a
+```
+
+同时在 relay 中配置：
 
 ```yaml
 webhooks:
   - name: team-a
-    enabled: true
     path: /api/v1/harbor/webhook/team-a
-    authorization: "Bearer replace-with-relay-webhook-token"
-    source_registry: registry.example.com:9443
+    authorization: "Bearer xxx"
 ```
 
-### 2. route
+注意事项：
 
-```yaml
-routes:
-  - name: team-a
-    channel: team-a
-    enabled: true
-    webhook_names:
-      - team-a
-    repository_patterns:
-      - "team-a/**"
-    target_sites:
-      - dc1
-```
+- 不要写双斜杠 `//`
+- method 必须是 `POST`
+- `Authorization` 要和 relay 配置一致
 
-### 3. target
-
-```yaml
-targets:
-  - name: dc1
-    site_name: dc1
-    enabled: true
-    target_registry: registry-dr.example.com:9443
-    target_project: team-a-dr
-    repository_prefix: ""
-```
-
-## 五、agent 配置关键点
-
-```yaml
-agent_id: dc1-agent-01
-site_name: dc1
-channels:
-  - team-a
-
-relay_address: 127.0.0.1:19090
-relay_server_name: ""
-insecure_skip_verify: false
-
-source_registry: registry.example.com:9443
-source_username: replace-with-source-robot-username
-source_password: replace-with-source-robot-password
-
-target_registry: registry-dr.example.com:9443
-target_username: replace-with-target-robot-username
-target_password: replace-with-target-robot-password
-```
-
-## 六、Harbor webhook 配置
-
-在 Harbor 项目里新增 webhook：
-
-- URL
-  - `https://relay.example.com:9443/api/v1/harbor/webhook/team-a`
-- Method
-  - `POST`
-- Header
-  - `Authorization: Bearer <your-token>`
-
-注意不要写成带双斜杠的路径，例如：
-
-```text
-https://relay.example.com:9443//api/v1/harbor/webhook/team-a
-```
-
-否则很多客户端会先 301 再改成 `GET`，最终导致 webhook 被 relay 拒绝。
-
-## 七、Caddy 入口
-
-Relay 与 Harbor 都可以复用 `9443`，前提是域名不同：
-
-- `registry.example.com:9443` -> Harbor
-- `relay.example.com:9443` -> relay
-
-参考示例：
-
-- [relay.example.com.9443.caddy](../deploy/caddy/relay.example.com.9443.caddy)
-
-## 八、状态查询
+## 常用状态检查
 
 ```bash
 curl http://127.0.0.1:18080/healthz
@@ -217,11 +238,35 @@ curl http://127.0.0.1:18080/api/v1/agents
 curl http://127.0.0.1:18080/api/v1/notification-jobs
 ```
 
-## 九、建议的上线顺序
+## 升级建议
 
-1. 先跑通 Harbor `docker push`
-2. 再跑通 relay webhook 入队
-3. 再跑通 agent 领任务与推送
-4. 最后再接 callback 和通知
+### relay
 
-这样排障路径最清晰。
+```bash
+sudo ./harbor-relay-toolkit-linux-amd64.run install --role relay --force
+sudo ./harbor-relay-toolkit-linux-amd64.run activate --role relay
+```
+
+### agent
+
+```bash
+sudo ./harbor-relay-toolkit-linux-amd64.run install --role agent --force
+sudo ./harbor-relay-toolkit-linux-amd64.run activate --role agent
+```
+
+## 卸载
+
+```bash
+sudo ./harbor-relay-toolkit-linux-amd64.run uninstall --role relay
+sudo ./harbor-relay-toolkit-linux-amd64.run uninstall --role agent
+```
+
+保留配置与状态：
+
+- 默认保留
+
+彻底清理：
+
+```bash
+sudo ./harbor-relay-toolkit-linux-amd64.run uninstall --role all --purge
+```

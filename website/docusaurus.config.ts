@@ -3,7 +3,7 @@ import type {Config} from '@docusaurus/types';
 
 const config: Config = {
   title: 'Harbor Relay',
-  tagline: 'Harbor image distribution, routing, callbacks, and notifications',
+  tagline: 'Harbor 镜像同步控制面：路由、分发、回调与通知',
   favicon: 'img/logo.svg',
 
   url: 'https://docs.example.com:9443',

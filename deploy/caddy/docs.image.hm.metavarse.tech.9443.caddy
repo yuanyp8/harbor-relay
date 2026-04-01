@@ -1,0 +1,13 @@
+docs.image.hm.metavarse.tech:9443 {
+    encode zstd gzip
+
+    header {
+        -Server
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    }
+
+    reverse_proxy 127.0.0.1:18081
+}
