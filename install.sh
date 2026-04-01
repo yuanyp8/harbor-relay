@@ -249,7 +249,7 @@ install_systemd_units() {
 
 line_has_placeholder() {
     local line="$1"
-    [[ "${line}" =~ replace-with-|example\.com|changeme|<[^>]+> ]]
+    grep -Eq 'replace-with-|example\.com|changeme|<[^>]+>' <<<"${line}"
 }
 
 config_has_placeholders() {
