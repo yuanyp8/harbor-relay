@@ -166,11 +166,22 @@ func (a *Agent) handleTask(ctx context.Context, stream relayv1.RelayService_Conn
 		return err
 	}
 
+	delayTargetLogin := shouldDelayTargetLogin(task, a.cfg)
+	if delayTargetLogin {
+		a.logger.Info("source and target registry are identical; using sequential login flow",
+			"registry", task.SourceRegistry,
+			"source_username", a.cfg.SourceUsername,
+			"target_username", a.cfg.TargetUsername,
+		)
+	}
+
 	if err := a.login(ctx, task.SourceRegistry, a.cfg.SourceUsername, a.cfg.SourcePassword); err != nil {
 		return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "source login failed: "+err.Error(), nil, nil)
 	}
-	if err := a.login(ctx, task.TargetRegistry, a.cfg.TargetUsername, a.cfg.TargetPassword); err != nil {
-		return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "target login failed: "+err.Error(), nil, nil)
+	if !delayTargetLogin {
+		if err := a.login(ctx, task.TargetRegistry, a.cfg.TargetUsername, a.cfg.TargetPassword); err != nil {
+			return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "target login failed: "+err.Error(), nil, nil)
+		}
 	}
 
 	sourceRef := task.SourcePullRef
@@ -181,6 +192,12 @@ func (a *Agent) handleTask(ctx context.Context, stream relayv1.RelayService_Conn
 		return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "docker pull failed: "+err.Error(), nil, nil)
 	}
 
+	if delayTargetLogin {
+		if err := a.login(ctx, task.TargetRegistry, a.cfg.TargetUsername, a.cfg.TargetPassword); err != nil {
+			return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "target login failed: "+err.Error(), nil, nil)
+		}
+	}
+
 	if len(task.Tags) == 0 {
 		return a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_FAILED, "no usable tags found in task", nil, nil)
 	}
@@ -188,6 +205,7 @@ func (a *Agent) handleTask(ctx context.Context, stream relayv1.RelayService_Conn
 	if err := a.sendProgress(stream, task.TaskId, relayv1.TaskStatus_TASK_STATUS_PUSHING, "pushing target image", nil, nil); err != nil {
 		return err
 	}
+
 
 	targetRefs := make([]string, 0, len(task.Tags))
 	targetRefDescriptors := make([]string, 0, len(task.Tags))
@@ -289,4 +307,21 @@ func (a *Agent) dial(ctx context.Context) (*grpc.ClientConn, error) {
 		return grpc.NewClient(a.cfg.RelayAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 	return grpc.NewClient(a.cfg.RelayAddress, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})))
+}
+
+func shouldDelayTargetLogin(task *relayv1.TaskAssignment, cfg config.AgentConfig) bool {
+	if !sameRegistryHost(task.SourceRegistry, task.TargetRegistry) {
+		return false
+	}
+	return cfg.SourceUsername != cfg.TargetUsername || cfg.SourcePassword != cfg.TargetPassword
+}
+
+func sameRegistryHost(left, right string) bool {
+	return normalizeRegistryHost(left) == normalizeRegistryHost(right)
+}
+
+func normalizeRegistryHost(host string) string {
+	host = strings.TrimSpace(strings.ToLower(host))
+	host = strings.TrimSuffix(host, "/")
+	return host
 }
