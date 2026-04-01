@@ -65,9 +65,31 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 6. 组装最终要发布到哪些镜像仓库。
+      # 6. 如果你在仓库里配置了阿里云 ACR 信息，就额外登录 ACR。
+      #
+      #    建议在 GitHub 仓库中配置：
+      #    - Repository Variables:
+      #      - ACR_REGISTRY，例如：registry.cn-hangzhou.aliyuncs.com
+      #      - ACR_IMAGE，例如：registry.cn-hangzhou.aliyuncs.com/your-namespace/harbor-relay-docs
+      #    - Repository Secrets:
+      #      - ACR_USERNAME
+      #      - ACR_PASSWORD
+      #
+      #    说明：
+      #    - ACR_USERNAME / ACR_PASSWORD 建议使用容器镜像服务的专用登录凭据
+      #    - 如果没有配置 ACR_IMAGE，这一步会自动跳过
+      - name: Log in to Alibaba Cloud ACR
+        if: ${{ vars.ACR_IMAGE != '' && vars.ACR_REGISTRY != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      # 7. 组装最终要发布到哪些镜像仓库。
       #    默认一定会发到 GHCR；
       #    如果配置了 vars.DOCKERHUB_IMAGE，则会一起发到 Docker Hub。
+      #    如果配置了 vars.ACR_IMAGE，则会一起发到阿里云 ACR。
       - name: Prepare image list
         id: images
         shell: bash
@@ -78,10 +100,13 @@ jobs:
             if [[ -n "${{ vars.DOCKERHUB_IMAGE }}" ]]; then
               echo "docker.io/${{ vars.DOCKERHUB_IMAGE }}"
             fi
+            if [[ -n "${{ vars.ACR_IMAGE }}" ]]; then
+              echo "${{ vars.ACR_IMAGE }}"
+            fi
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
-      # 7. 统一生成 tags 和 OCI labels。
+      # 8. 统一生成 tags 和 OCI labels。
       #    例如：
       #    - main 分支 -> main / latest / sha-xxxx
       #    - tag 发布  -> v1.0.0 / sha-xxxx
@@ -96,12 +121,13 @@ jobs:
             type=ref,event=tag
             type=sha,prefix=sha-
 
-      # 8. 一次 build，同时推送到所有已登录仓库。
+      # 9. 一次 build，同时推送到所有已登录仓库。
       #    这是整个 workflow 的核心步骤：
       #    - 构建 docs 静态站点镜像
       #    - 输出 linux/amd64 与 linux/arm64
       #    - 推送到 GHCR
       #    - 如已配置 Docker Hub，则同步推送到 Docker Hub
+      #    - 如已配置阿里云 ACR，则同步推送到阿里云 ACR
       - name: Build and push docs image
         uses: docker/build-push-action@v6
         with:
