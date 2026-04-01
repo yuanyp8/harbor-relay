@@ -36,6 +36,12 @@ targets:
 	if cfg.ServiceName != "harbor-relay" {
 		t.Fatalf("unexpected service name: %s", cfg.ServiceName)
 	}
+	if cfg.LogLevel != "info" {
+		t.Fatalf("unexpected log level: %s", cfg.LogLevel)
+	}
+	if cfg.LogFormat != "text" {
+		t.Fatalf("unexpected log format: %s", cfg.LogFormat)
+	}
 	if cfg.HTTPListen != ":18080" {
 		t.Fatalf("unexpected http listen: %s", cfg.HTTPListen)
 	}
@@ -69,5 +75,35 @@ func TestRouteConfig_AllowsWebhook(t *testing.T) {
 	routeAny := RouteConfig{Name: "all", Channel: "default"}
 	if !routeAny.AllowsWebhook("anything") {
 		t.Fatal("expected route with empty webhook_names to allow all")
+	}
+}
+
+func TestLoadAgentConfig_Defaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.yaml")
+	content := `
+agent_id: agent-1
+site_name: dc1
+relay_address: 127.0.0.1:19090
+source_registry: image.hm.metavarse.tech:9443
+target_registry: sealos.hub:5000
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write file failed: %v", err)
+	}
+
+	cfg, err := LoadAgentConfig(path)
+	if err != nil {
+		t.Fatalf("load agent config failed: %v", err)
+	}
+
+	if cfg.LogLevel != "info" {
+		t.Fatalf("unexpected log level: %s", cfg.LogLevel)
+	}
+	if cfg.LogFormat != "text" {
+		t.Fatalf("unexpected log format: %s", cfg.LogFormat)
+	}
+	if cfg.MaxSessionAge == 0 {
+		t.Fatal("expected max session age default to be set")
 	}
 }

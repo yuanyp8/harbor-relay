@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -22,7 +24,10 @@ import (
 type Agent struct {
 	cfg    config.AgentConfig
 	logger *slog.Logger
+	busy   atomic.Bool
 }
+
+var errSessionRefresh = errors.New("agent session refresh requested")
 
 // Run 维持与 relay 的长连接。
 // 远端节点只需要能主动连出；真正的调度决策都在 relay 侧完成。
@@ -36,7 +41,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		a.logger.Error("relay connection ended", "err", err)
+		if errors.Is(err, errSessionRefresh) {
+			a.logger.Info("relay session rotated", "max_session_age", a.cfg.MaxSessionAge)
+		} else {
+			a.logger.Error("relay connection ended", "err", err)
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -57,6 +66,7 @@ func (a *Agent) runOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	sessionStartedAt := time.Now()
 
 	if err := stream.Send(&relayv1.AgentMessage{
 		Payload: &relayv1.AgentMessage_Hello{
@@ -74,6 +84,12 @@ func (a *Agent) runOnce(ctx context.Context) error {
 
 	heartbeatTicker := time.NewTicker(a.cfg.HeartbeatInterval)
 	defer heartbeatTicker.Stop()
+	a.logger.Info("relay stream connected",
+		"relay_address", a.cfg.RelayAddress,
+		"site_name", a.cfg.SiteName,
+		"channels", a.cfg.Channels,
+		"max_session_age", a.cfg.MaxSessionAge,
+	)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -98,6 +114,10 @@ func (a *Agent) runOnce(ctx context.Context) error {
 		case err := <-errCh:
 			return err
 		case <-heartbeatTicker.C:
+			a.logger.Debug("sending agent heartbeat",
+				"agent_id", a.cfg.AgentID,
+				"site_name", a.cfg.SiteName,
+			)
 			if err := stream.Send(&relayv1.AgentMessage{
 				Payload: &relayv1.AgentMessage_Heartbeat{
 					Heartbeat: &relayv1.AgentHeartbeat{
@@ -107,6 +127,20 @@ func (a *Agent) runOnce(ctx context.Context) error {
 			}); err != nil {
 				return err
 			}
+			if a.cfg.MaxSessionAge > 0 && time.Since(sessionStartedAt) >= a.cfg.MaxSessionAge {
+				if a.busy.Load() {
+					a.logger.Debug("max session age reached but agent is busy; postpone reconnect",
+						"agent_id", a.cfg.AgentID,
+						"max_session_age", a.cfg.MaxSessionAge,
+					)
+					continue
+				}
+				a.logger.Info("max session age reached; reconnecting idle agent stream",
+					"agent_id", a.cfg.AgentID,
+					"max_session_age", a.cfg.MaxSessionAge,
+				)
+				return errSessionRefresh
+			}
 		}
 	}
 }
@@ -115,6 +149,8 @@ func (a *Agent) runOnce(ctx context.Context) error {
 // relay 告诉 agent “同步什么”，agent 只负责按固定顺序执行：
 // login -> pull by digest -> tag -> push -> report
 func (a *Agent) handleTask(ctx context.Context, stream relayv1.RelayService_ConnectClient, task *relayv1.TaskAssignment) error {
+	a.busy.Store(true)
+	defer a.busy.Store(false)
 	a.logger.Info("received task",
 		"task_id", task.TaskId,
 		"channel", task.Channel,
@@ -184,6 +220,13 @@ func (a *Agent) handleTask(ctx context.Context, stream relayv1.RelayService_Conn
 
 // sendProgress 把当前任务进度回报给 relay。
 func (a *Agent) sendProgress(stream relayv1.RelayService_ConnectClient, taskID string, status relayv1.TaskStatus, message string, refs, descriptors []string) error {
+	a.logger.Debug("sending task progress",
+		"task_id", taskID,
+		"status", status.String(),
+		"message", message,
+		"target_refs", refs,
+		"target_ref_descriptors", descriptors,
+	)
 	return stream.Send(&relayv1.AgentMessage{
 		Payload: &relayv1.AgentMessage_Progress{
 			Progress: &relayv1.TaskProgress{
@@ -202,22 +245,26 @@ func (a *Agent) login(ctx context.Context, registry, username, password string) 
 	if registry == "" || username == "" || password == "" {
 		return nil
 	}
+	a.logger.Debug("docker login started", "registry", registry, "username", username)
 	cmd := exec.CommandContext(ctx, a.cfg.DockerBinary, "login", registry, "-u", username, "--password-stdin")
 	cmd.Stdin = strings.NewReader(password)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
 	}
+	a.logger.Debug("docker login completed", "registry", registry, "username", username)
 	return nil
 }
 
 // runDocker 是对 docker CLI 的最薄封装，方便后面补测试桩或替换实现。
 func (a *Agent) runDocker(ctx context.Context, args ...string) error {
+	a.logger.Debug("docker command started", "args", args)
 	cmd := exec.CommandContext(ctx, a.cfg.DockerBinary, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
 	}
+	a.logger.Debug("docker command completed", "args", args)
 	return nil
 }
 

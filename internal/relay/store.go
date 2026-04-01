@@ -323,6 +323,26 @@ func (s *Store) GetTask(taskID string) (*Task, bool) {
 	return &taskCopy, true
 }
 
+func (s *Store) PendingTaskStats(siteName string, channels []string) (totalPending, sameSitePending, assignablePending int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, task := range s.state.Tasks {
+		if task.Status != relayv1.TaskStatus_TASK_STATUS_PENDING {
+			continue
+		}
+		totalPending++
+		if task.SiteName != siteName {
+			continue
+		}
+		sameSitePending++
+		if channelAllowed(task.Channel, channels) {
+			assignablePending++
+		}
+	}
+	return totalPending, sameSitePending, assignablePending
+}
+
 func isFinalStatus(status relayv1.TaskStatus) bool {
 	return status == relayv1.TaskStatus_TASK_STATUS_DONE ||
 		status == relayv1.TaskStatus_TASK_STATUS_FAILED ||

@@ -1,8 +1,17 @@
 agent_id: dc1-agent-01
+
+# site_name 必须和 relay target_sites 命中的 site_name 一致。
+# 如果 relay 任务的 site_name 是 yunnan-mid，而 agent 写成 dc1，
+# 这个 agent 就永远领不到那条任务。
 site_name: dc1
 
-# channels 决定当前 agent 会接哪些频道的任务。
-# 如果留空，程序会自动按 ["*"] 处理，表示接收本站点全部频道。
+# 日志支持 text/json，两种格式都支持 debug/info/warn/error。
+# 日常运行建议 info，排障时切到 debug。
+log_level: info
+log_format: text
+
+# channels 决定当前 agent 会消费哪些频道的任务。
+# 如果留空，程序会自动按 ["*"] 处理，表示消费本站点全部频道。
 channels:
   - kube4-core
   - cmict-apps
@@ -11,8 +20,8 @@ version: "v1"
 
 # relay 和 harbor 可以共用 9443，只要域名不同即可。
 # 例如：
-# - image.hm.metavarse.tech:9443  -> Harbor
-# - relay.hm.metavarse.tech:9443  -> Relay
+# - image.hm.metavarse.tech:9443 -> Harbor
+# - relay.hm.metavarse.tech:9443 -> Relay
 relay_address: relay.hm.metavarse.tech:9443
 relay_server_name: relay.hm.metavarse.tech
 insecure_skip_verify: false
@@ -28,4 +37,10 @@ target_password: replace-with-target-password
 docker_binary: docker
 heartbeat_interval: 10s
 reconnect_interval: 5s
+
+# agent 不会一直保持一条永不重连的长连接。
+# 到了这个时长后，如果当前空闲，会主动断开并重新建立 gRPC 会话。
+# 如果正在执行任务，会等任务结束后的下一次心跳再轮转，避免任务中途被重排。
+max_session_age: 30m
+
 cleanup_local_images: true

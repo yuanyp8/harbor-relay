@@ -248,3 +248,112 @@ yunnan-mid-test/registry-photon
 - `./build.sh amd64`
 
 这样 webhook 路由、channel 调度这类逻辑变更时，更容易第一时间发现回归。
+## 新增说明：日志等级与格式
+
+现在 `relay` 和 `agent` 都支持下面两个配置项：
+
+```yaml
+log_level: info
+log_format: text
+```
+
+- `log_level` 支持：`debug`、`info`、`warn`、`error`
+- `log_format` 支持：`text`、`json`
+
+建议：
+
+- 日常运行：`info + text`
+- 联调排障：`debug + text`
+- 接日志平台：`info + json`
+
+说明：
+
+- `healthz`、HTTP access log、agent heartbeat 这类高频日志默认降到了 `debug`
+- webhook 接入、任务创建、任务分发、同步进度、callback 结果这类关键链路保留在 `info`
+
+## 新增说明：Agent 定期重连
+
+现在 agent 支持：
+
+```yaml
+max_session_age: 30m
+```
+
+含义：
+
+- agent 不会一直保持同一条 gRPC 长连接
+- 达到 `max_session_age` 后，如果当前空闲，会主动断开并重连
+- 如果当前正在执行任务，会等任务结束后的下一次心跳再轮转
+
+## 新增说明：为什么任务 queue 了但没人消费
+
+最常见就是这两个条件没有同时对上：
+
+1. `task.site_name` 必须和 `agent.site_name` 一致
+2. `task.channel` 必须被 `agent.channels` 订阅到
+
+例如：
+
+- relay 生成任务时是 `site_name: yunnan-mid`
+- 但 agent 配成了 `site_name: dc1`
+
+那这个 agent 就永远领不到这条任务。
+
+现在 relay 在 debug 日志里会打印：
+
+- `total_pending`
+- `same_site_pending`
+- `assignable_pending`
+
+这样一眼就能看出来到底是：
+
+- 根本没有待处理任务
+- 有任务，但站点不匹配
+- 站点匹配了，但频道不匹配
+
+## 新增说明：callback_url 是干什么的
+
+`callback_url` 不是给 Harbor 用的，也不是给 agent 直接消费的。
+
+它的作用是：
+
+1. Harbor 把 webhook 发给 relay
+2. relay 生成任务
+3. agent 完成 pull / tag / push
+4. relay 再把“最终结果”POST 到 `callback_url`
+
+所以它更像：
+
+- 运维平台回调地址
+- 业务系统通知地址
+- 企业微信 / 钉钉机器人中转服务
+- 你自己的状态中心
+
+如果现在没有外部系统消费它，就先留空，不会影响同步主流程。
+
+## 新增说明：用户怎么知道同步状态
+
+`docker push` 本身只会告诉用户“推送到源 Harbor 成功了”，它不会自动知道后面的跨仓库同步状态。
+
+要把“同步是否触发、是否完成、进度如何”反馈给用户，推荐三层做法：
+
+1. 基础层：查 relay API
+
+```bash
+curl http://127.0.0.1:18080/api/v1/tasks
+curl http://127.0.0.1:18080/api/v1/agents
+```
+
+2. 业务层：配置 `callback_url`
+
+- 同步完成后，由 relay 回调你的运维平台
+- 运维平台再给用户发消息、更新页面、写数据库
+
+3. 体验层：做一个状态页或消息机器人
+
+- 用户 push 完后，到状态页查 event / repository / tag
+- 或者由回调服务直接发企业微信 / 钉钉消息
+
+也就是说，最推荐的链路是：
+
+`docker push -> Harbor webhook -> relay -> agent -> callback_url -> 你的通知系统`

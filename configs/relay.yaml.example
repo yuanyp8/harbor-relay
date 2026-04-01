@@ -1,12 +1,19 @@
 service_name: harbor-relay
 
+# 日志支持 text/json，两种格式都支持 debug/info/warn/error。
+# 日常运行建议 info，排障时切到 debug。
+log_level: info
+log_format: text
+
 # Harbor webhook 如果要从局域网或外部入口打进来，这里不要只绑 127.0.0.1。
-# 单机本地调试可以用 127.0.0.1:18080；
+# 单机本地调试可以用 127.0.0.1:18080。
 # 真正接 Harbor webhook 时，更常见的是 0.0.0.0:18080。
 http_listen: 127.0.0.1:18080
 
-# gRPC 一般建议只让 Caddy 或本机代理接入，所以默认保留本地监听。
+# gRPC 一般建议只让 Caddy 或本机代理接入。
+# 如果你当前是同机测试，也可以直接改成 0.0.0.0:19090。
 grpc_listen: 127.0.0.1:19090
+
 data_file: /data/harbor-relay/relay-state.json
 
 # 默认源仓库地址。
@@ -83,6 +90,8 @@ targets:
     # 则目标会变成 yunnan-mid-test/registry-photon。
     target_project: ""
 
+    # callback_url 是“同步结果回调”地址。
+    # 当 agent 把镜像 push 完成后，relay 会向这个地址发 POST，告诉外部系统结果。
     callback_url: "https://ops.hm.metavarse.tech/api/image-sync/callback"
     callback_token: "replace-with-callback-token"
 

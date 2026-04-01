@@ -95,7 +95,7 @@ func (s *GRPCServer) Connect(stream relayv1.RelayService_ConnectServer) error {
 
 		switch payload := msg.Payload.(type) {
 		case *relayv1.AgentMessage_Heartbeat:
-			s.logger.Info("agent heartbeat received",
+			s.logger.Debug("agent heartbeat received",
 				"agent_id", hello.AgentId,
 				"site_name", hello.SiteName,
 			)
@@ -157,6 +157,15 @@ func (s *GRPCServer) maybeSendTask(stream relayv1.RelayService_ConnectServer, si
 		return status.Errorf(codes.Internal, "assign task failed: %v", err)
 	}
 	if task == nil {
+		totalPending, sameSitePending, assignablePending := s.service.store.PendingTaskStats(siteName, channels)
+		s.logger.Debug("no task available for agent",
+			"agent_id", agentID,
+			"site_name", siteName,
+			"channels", channels,
+			"total_pending", totalPending,
+			"same_site_pending", sameSitePending,
+			"assignable_pending", assignablePending,
+		)
 		return nil
 	}
 	s.logger.Info("task assigned to agent",

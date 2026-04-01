@@ -112,3 +112,53 @@ func TestUpdateTaskProgress_FinalClearsCurrentTask(t *testing.T) {
 		t.Fatalf("expected current task to be cleared, got %s", agents[0].CurrentTaskID)
 	}
 }
+
+func TestPendingTaskStats(t *testing.T) {
+	store, err := NewStore("")
+	if err != nil {
+		t.Fatalf("new store failed: %v", err)
+	}
+	now := time.Now()
+	if err := store.AddTasks([]*Task{
+		{
+			ID:        "task-1",
+			EventID:   "event-1",
+			Channel:   "yunnan-mid",
+			SiteName:  "yunnan-mid",
+			Status:    relayv1.TaskStatus_TASK_STATUS_PENDING,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "task-2",
+			EventID:   "event-2",
+			Channel:   "other-channel",
+			SiteName:  "yunnan-mid",
+			Status:    relayv1.TaskStatus_TASK_STATUS_PENDING,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			ID:        "task-3",
+			EventID:   "event-3",
+			Channel:   "yunnan-mid",
+			SiteName:  "dc2",
+			Status:    relayv1.TaskStatus_TASK_STATUS_PENDING,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	}); err != nil {
+		t.Fatalf("add tasks failed: %v", err)
+	}
+
+	total, sameSite, assignable := store.PendingTaskStats("yunnan-mid", []string{"yunnan-mid"})
+	if total != 3 {
+		t.Fatalf("expected total pending 3, got %d", total)
+	}
+	if sameSite != 2 {
+		t.Fatalf("expected same-site pending 2, got %d", sameSite)
+	}
+	if assignable != 1 {
+		t.Fatalf("expected assignable pending 1, got %d", assignable)
+	}
+}

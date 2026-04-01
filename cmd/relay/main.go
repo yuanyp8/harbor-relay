@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 
 	relayv1 "github.com/yuanyp8/harbor-relay/gen/proto/relay/v1"
 	"github.com/yuanyp8/harbor-relay/internal/config"
+	"github.com/yuanyp8/harbor-relay/internal/logutil"
 	"github.com/yuanyp8/harbor-relay/internal/relay"
 )
 
@@ -22,13 +22,14 @@ func main() {
 	configPath := flag.String("config", "./configs/relay.yaml", "relay 配置文件路径")
 	flag.Parse()
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	bootstrapLogger := logutil.New("relay", "info", "text")
 
 	cfg, err := config.LoadRelayConfig(*configPath)
 	if err != nil {
-		logger.Error("load config failed", "err", err)
+		bootstrapLogger.Error("load config failed", "err", err)
 		os.Exit(1)
 	}
+	logger := logutil.New("relay", cfg.LogLevel, cfg.LogFormat)
 
 	store, err := relay.NewStore(cfg.DataFile)
 	if err != nil {

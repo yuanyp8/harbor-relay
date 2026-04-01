@@ -15,6 +15,8 @@ type RelayConfig struct {
 	GRPCListen     string          `yaml:"grpc_listen"`
 	DataFile       string          `yaml:"data_file"`
 	SourceRegistry string          `yaml:"source_registry"`
+	LogLevel       string          `yaml:"log_level"`
+	LogFormat      string          `yaml:"log_format"`
 	Webhook        WebhookConfig   `yaml:"webhook"`
 	Webhooks       []WebhookConfig `yaml:"webhooks"`
 	Routes         []RouteConfig   `yaml:"routes"`
@@ -61,6 +63,8 @@ type AgentConfig struct {
 	SiteName           string        `yaml:"site_name"`
 	Channels           []string      `yaml:"channels"`
 	Version            string        `yaml:"version"`
+	LogLevel           string        `yaml:"log_level"`
+	LogFormat          string        `yaml:"log_format"`
 	RelayAddress       string        `yaml:"relay_address"`
 	RelayServerName    string        `yaml:"relay_server_name"`
 	SourceRegistry     string        `yaml:"source_registry"`
@@ -72,6 +76,7 @@ type AgentConfig struct {
 	DockerBinary       string        `yaml:"docker_binary"`
 	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`
 	ReconnectInterval  time.Duration `yaml:"reconnect_interval"`
+	MaxSessionAge      time.Duration `yaml:"max_session_age"`
 	CleanupLocalImages bool          `yaml:"cleanup_local_images"`
 	InsecureSkipVerify bool          `yaml:"insecure_skip_verify"`
 }
@@ -85,6 +90,12 @@ func LoadRelayConfig(path string) (RelayConfig, error) {
 
 	if cfg.ServiceName == "" {
 		cfg.ServiceName = "harbor-relay"
+	}
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = "info"
+	}
+	if cfg.LogFormat == "" {
+		cfg.LogFormat = "text"
 	}
 	if cfg.HTTPListen == "" {
 		cfg.HTTPListen = ":18080"
@@ -180,6 +191,12 @@ func LoadAgentConfig(path string) (AgentConfig, error) {
 	if cfg.DockerBinary == "" {
 		cfg.DockerBinary = "docker"
 	}
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = "info"
+	}
+	if cfg.LogFormat == "" {
+		cfg.LogFormat = "text"
+	}
 	if len(cfg.Channels) == 0 {
 		cfg.Channels = []string{"*"}
 	}
@@ -188,6 +205,9 @@ func LoadAgentConfig(path string) (AgentConfig, error) {
 	}
 	if cfg.ReconnectInterval == 0 {
 		cfg.ReconnectInterval = 5 * time.Second
+	}
+	if cfg.MaxSessionAge == 0 {
+		cfg.MaxSessionAge = 30 * time.Minute
 	}
 	return cfg, nil
 }

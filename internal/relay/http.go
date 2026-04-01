@@ -11,7 +11,7 @@ import (
 func (s *Service) HTTPHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		s.logger.Info("healthz request received", "remote_addr", r.RemoteAddr, "user_agent", r.UserAgent())
+		s.logger.Debug("healthz request received", "remote_addr", r.RemoteAddr, "user_agent", r.UserAgent())
 		writeJSON(w, http.StatusOK, map[string]string{
 			"status":  "ok",
 			"service": s.cfg.ServiceName,
@@ -56,7 +56,7 @@ func (s *Service) withAccessLog(next http.Handler) http.Handler {
 		if lrw.status == 0 {
 			lrw.status = http.StatusOK
 		}
-		s.logger.Info("http request completed",
+		s.logger.Debug("http request completed",
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.String("query", r.URL.RawQuery),
@@ -74,7 +74,7 @@ func (s *Service) handleTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	s.logger.Info("tasks list requested")
+	s.logger.Debug("tasks list requested")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items": s.store.ListTasks(),
 	})
@@ -92,7 +92,7 @@ func (s *Service) handleTaskByID(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.logger.Info("task detail requested", "task_id", id)
+	s.logger.Debug("task detail requested", "task_id", id)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(task)
 }
@@ -102,7 +102,7 @@ func (s *Service) handleAgents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	s.logger.Info("agents list requested")
+	s.logger.Debug("agents list requested")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items": s.store.ListAgents(),
 	})
