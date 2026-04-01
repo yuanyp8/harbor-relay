@@ -173,3 +173,7 @@ GitHub Actions 默认负责三件事：
 ## 许可证
 
 如果要公开发布仓库，请在发布前补充 `LICENSE` 文件。
+## License
+
+This project is licensed under the Apache License 2.0.
+See [LICENSE](./LICENSE) for details.
