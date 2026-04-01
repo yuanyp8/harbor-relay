@@ -6,6 +6,7 @@ COPY website/package-lock.json ./package-lock.json
 RUN npm ci
 
 COPY docs ../docs
+COPY deploy ../deploy
 COPY website .
 RUN npm run build
 
