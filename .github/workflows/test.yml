@@ -1,83 +1,97 @@
 name: ci
 
 on:
+  # main 分支每次变更都执行一次完整校验。
   push:
     branches:
       - main
+  # Pull Request 也会执行，避免问题进入主分支。
   pull_request:
+  # 允许手工重跑，方便排查偶发问题。
+  workflow_dispatch:
 
 jobs:
   go-test:
+    # 基础 Go 代码质量检查。
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      - name: Setup Go
+      - name: 准备 Go 环境
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
-      - name: Check gofmt
+      - name: 检查 gofmt 格式
         run: test -z "$(gofmt -l .)"
 
-      - name: Run tests
+      - name: 执行 Go 单元测试
         run: go test ./...
 
   package-smoke:
+    # 验证 build.sh 在双架构下都能成功产出 .run 安装包。
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - amd64
+          - arm64
     steps:
-      - name: Checkout
+      - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      - name: Setup Go
+      - name: 准备 Go 环境
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
-      - name: Build amd64 installer
+      - name: 构建 ${{ matrix.arch }} 安装包
         run: |
           chmod +x ./build.sh
-          ./build.sh --arch amd64
+          ./build.sh --arch ${{ matrix.arch }}
 
-      - name: Verify installer artifact
+      - name: 校验 ${{ matrix.arch }} 安装包产物存在
         run: |
-          test -f ./dist/linux-amd64/harbor-relay-toolkit-linux-amd64.run
-          test -f ./dist/linux-amd64/harbor-relay-toolkit-linux-amd64.run.sha256
+          test -f ./dist/linux-${{ matrix.arch }}/harbor-relay-toolkit-linux-${{ matrix.arch }}.run
+          test -f ./dist/linux-${{ matrix.arch }}/harbor-relay-toolkit-linux-${{ matrix.arch }}.run.sha256
 
-      - name: Smoke test self-extracting installer
+      - name: 自解压安装包 smoke test
         run: |
-          chmod +x ./dist/linux-amd64/harbor-relay-toolkit-linux-amd64.run
-          ./dist/linux-amd64/harbor-relay-toolkit-linux-amd64.run readme > /dev/null
+          chmod +x ./dist/linux-${{ matrix.arch }}/harbor-relay-toolkit-linux-${{ matrix.arch }}.run
+          ./dist/linux-${{ matrix.arch }}/harbor-relay-toolkit-linux-${{ matrix.arch }}.run readme > /dev/null
 
   docs-build:
+    # 文档站点静态构建检查，确保 Markdown / Docusaurus 没有断链或编译错误。
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: website
     steps:
-      - name: Checkout
+      - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: 准备 Node 环境
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: website/package-lock.json
 
-      - name: Install website dependencies
+      - name: 安装文档站依赖
         run: npm ci
 
-      - name: Build documentation site
+      - name: 构建文档站静态文件
         run: npm run build
 
   docs-image-smoke:
+    # 验证文档镜像 Dockerfile 本身可以成功构建。
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      - name: Build docs container image
+      - name: 构建文档站容器镜像
         run: |
           docker build -t harbor-relay-docs:smoke -f website/Dockerfile .
