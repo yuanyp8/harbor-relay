@@ -3,3 +3,8 @@ data/
 coverage.out
 .idea/
 .vscode/
+.payload-build*/
+docs-site/
+website/node_modules/
+website/build/
+website/.docusaurus/

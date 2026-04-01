@@ -1,104 +1,121 @@
 service_name: harbor-relay
 
-# 日志支持 text/json，两种格式都支持 debug/info/warn/error。
-# 日常运行建议 info，排障时切到 debug。
 log_level: info
 log_format: text
 
-# Harbor webhook 如果要从局域网或外部入口打进来，这里不要只绑 127.0.0.1。
-# 单机本地调试可以用 127.0.0.1:18080。
-# 真正接 Harbor webhook 时，更常见的是 0.0.0.0:18080。
-http_listen: 127.0.0.1:18080
+# Listen on all interfaces so Harbor can reach the webhook endpoint.
+http_listen: 0.0.0.0:18080
 
-# gRPC 一般建议只让 Caddy 或本机代理接入。
-# 如果你当前是同机测试，也可以直接改成 0.0.0.0:19090。
+# Keep gRPC private when you front it with Caddy or another reverse proxy.
 grpc_listen: 127.0.0.1:19090
 
-data_file: /data/harbor-relay/relay-state.json
+data_file: /var/lib/harbor-relay/relay-state.json
 
-# 默认源仓库地址。
-# 如果某个 webhook 没有单独覆盖 source_registry，就会使用这里的值。
-source_registry: image.hm.metavarse.tech:9443
+# Default source registry for webhook entries that do not override it explicitly.
+source_registry: registry.example.com:9443
 
-# 一个 relay 可以同时承接多个 Harbor 项目的 webhook。
-# 最常见做法是：
-# 1. 所有项目共用同一个 path，然后用 routes 按仓库分流
-# 2. 不同项目用不同 path + 不同鉴权头
 webhooks:
-  - name: default
+  - name: team-a
     enabled: true
-    path: /api/v1/harbor/webhook
-    authorization: "Bearer replace-with-random-secret"
-    source_registry: image.hm.metavarse.tech:9443
+    path: /api/v1/harbor/webhook/team-a
+    authorization: "Bearer replace-with-a-random-shared-secret"
+    source_registry: registry.example.com:9443
 
-  - name: cmict-project
-    enabled: true
-    path: /api/v1/harbor/webhook/cmict
-    authorization: "Bearer replace-with-second-secret"
-    source_registry: image.hm.metavarse.tech:9443
-
-# routes 定义“仓库 -> channel -> 目标站点”的关系。
-# channel 是调度维度，远端 agent 只会消费自己订阅的频道。
 routes:
-  - name: kube4-core
-    channel: kube4-core
+  - name: team-a-apps
+    channel: team-a
     enabled: true
     webhook_names:
-      - default
+      - team-a
     repository_patterns:
-      - "kube4/mysql"
-      - "kube4/redis*"
-      - "kube4/mongo*"
-    target_sites:
-      - dc1
-      - dc2
-
-  - name: cmict-apps
-    channel: cmict-apps
-    enabled: true
-    webhook_names:
-      - cmict-project
-    repository_patterns:
-      - "cmict/**"
+      - "team-a/**"
     target_sites:
       - dc1
 
-  - name: milvus-only
-    channel: ai-platform
-    enabled: true
-    webhook_names:
-      - default
-    repository_patterns:
-      - "kube4/milvus*"
-      - "milvus/**"
-    target_sites:
-      - dc2
-
-# targets 定义远端站点及其目标仓库信息。
 targets:
   - name: dc1
     site_name: dc1
     enabled: true
-    target_registry: sealos.hub:5000
+    target_registry: registry-dr.example.com:9443
 
-    # 如果你只是想给目标仓库前面统一加一层前缀，可以用 repository_prefix。
-    # 例如 source 是 kube4/mysql，prefix 是 mirror，则目标会变成 mirror/kube4/mysql。
+    # If you need to rewrite the source project name on the target side,
+    # set target_project. Example:
+    #   source repository: team-a/backend
+    #   target_project: team-a-dr
+    #   final target repo: team-a-dr/backend
+    target_project: team-a-dr
+
+    # If you only need to prepend a path segment, use repository_prefix instead.
     repository_prefix: ""
 
-    # 如果你想把“项目名”整体改写掉，推荐用 target_project。
-    # 例如 source 是 yunnan-mid/registry-photon，target_project 是 yunnan-mid-test，
-    # 则目标会变成 yunnan-mid-test/registry-photon。
-    target_project: ""
-
-    # callback_url 是“同步结果回调”地址。
-    # 当 agent 把镜像 push 完成后，relay 会向这个地址发 POST，告诉外部系统结果。
-    callback_url: "https://ops.hm.metavarse.tech/api/image-sync/callback"
+    # Optional structured callback for an external operations platform.
+    callback_enabled: false
+    callback_url: "https://ops.example.com/api/image-sync/callback"
     callback_token: "replace-with-callback-token"
 
-  - name: dc2
-    site_name: dc2
-    enabled: true
-    target_registry: harbor.remote.example.com
-    repository_prefix: ""
-    callback_url: ""
-    callback_token: ""
+    notifications:
+      - name: steward-queued
+        type: onemsg_robot
+        enabled: true
+        endpoint: "https://office.example.com/onemsg-api/robot/pushToRobot"
+        robot_key: "replace-with-queued-robot-key"
+        title_prefix: "Steward Queued"
+        events:
+          - queued
+        timeout: 10s
+        min_interval: 1m
+        retry_interval: 30s
+        max_attempts: 0
+
+      - name: steward-pulling
+        type: onemsg_robot
+        enabled: true
+        endpoint: "https://office.example.com/onemsg-api/robot/pushToRobot"
+        robot_key: "replace-with-pulling-robot-key"
+        title_prefix: "Steward Pulling"
+        events:
+          - pulling
+        timeout: 10s
+        min_interval: 1m
+        retry_interval: 30s
+        max_attempts: 0
+
+      - name: steward-pushing
+        type: onemsg_robot
+        enabled: true
+        endpoint: "https://office.example.com/onemsg-api/robot/pushToRobot"
+        robot_key: "replace-with-pushing-robot-key"
+        title_prefix: "Steward Pushing"
+        events:
+          - pushing
+        timeout: 10s
+        min_interval: 1m
+        retry_interval: 30s
+        max_attempts: 0
+
+      - name: steward-done
+        type: onemsg_robot
+        enabled: true
+        endpoint: "https://office.example.com/onemsg-api/robot/pushToRobot"
+        robot_key: "replace-with-done-robot-key"
+        title_prefix: "Steward Done"
+        events:
+          - done
+        timeout: 10s
+        min_interval: 1m
+        retry_interval: 30s
+        max_attempts: 0
+
+      - name: steward-failed
+        type: onemsg_robot
+        enabled: true
+        endpoint: "https://office.example.com/onemsg-api/robot/pushToRobot"
+        robot_key: "replace-with-failed-robot-key"
+        title_prefix: "Steward Failed"
+        events:
+          - failed
+          - callback_failed
+        timeout: 10s
+        min_interval: 1m
+        retry_interval: 30s
+        max_attempts: 0

@@ -207,7 +207,6 @@ func (a *Agent) handleTask(ctx context.Context, stream relayv1.RelayService_Conn
 		return err
 	}
 
-
 	targetRefs := make([]string, 0, len(task.Tags))
 	targetRefDescriptors := make([]string, 0, len(task.Tags))
 	for _, tag := range task.Tags {

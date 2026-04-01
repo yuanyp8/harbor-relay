@@ -19,7 +19,7 @@ import (
 )
 
 func main() {
-	configPath := flag.String("config", "./configs/relay.yaml", "relay 配置文件路径")
+	configPath := flag.String("config", "/etc/harbor-relay/relay.yaml", "path to the relay config file")
 	flag.Parse()
 
 	bootstrapLogger := logutil.New("relay", "info", "text")
@@ -38,6 +38,10 @@ func main() {
 	}
 
 	service := relay.NewService(cfg, store, logger)
+	runtimeCtx, runtimeCancel := context.WithCancel(context.Background())
+	defer runtimeCancel()
+	service.StartBackground(runtimeCtx)
+
 	grpcServer := grpc.NewServer()
 	relayv1.RegisterRelayServiceServer(grpcServer, relay.NewGRPCServer(service, logger))
 
@@ -82,6 +86,7 @@ func main() {
 		}
 	}
 
+	runtimeCancel()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_ = httpServer.Shutdown(ctx)

@@ -1,7 +1,9 @@
-name: test
+name: ci
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
 jobs:
@@ -16,5 +18,56 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Check gofmt
+        run: test -z "$(gofmt -l .)"
+
       - name: Run tests
         run: go test ./...
+
+  package-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build amd64 installer
+        run: |
+          chmod +x ./build.sh
+          ./build.sh --arch amd64
+
+      - name: Verify installer artifact
+        run: |
+          test -f ./dist/linux-amd64/harbor-relay-toolkit-linux-amd64.run
+          test -f ./dist/linux-amd64/harbor-relay-toolkit-linux-amd64.run.sha256
+
+      - name: Smoke test self-extracting installer
+        run: |
+          chmod +x ./dist/linux-amd64/harbor-relay-toolkit-linux-amd64.run
+          ./dist/linux-amd64/harbor-relay-toolkit-linux-amd64.run readme > /dev/null
+
+  docs-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install website dependencies
+        run: npm ci
+
+      - name: Build documentation site
+        run: npm run build

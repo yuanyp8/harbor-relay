@@ -1,0 +1,21 @@
+relay.example.com:9443 {
+    encode zstd gzip
+
+    @grpc {
+        header Content-Type application/grpc*
+    }
+
+    @callback path /api/image-sync/callback
+
+    handle @grpc {
+        reverse_proxy h2c://127.0.0.1:19090
+    }
+
+    handle @callback {
+        reverse_proxy 127.0.0.1:18082
+    }
+
+    handle {
+        reverse_proxy 127.0.0.1:18080
+    }
+}

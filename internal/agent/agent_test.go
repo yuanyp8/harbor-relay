@@ -9,8 +9,8 @@ import (
 
 func TestShouldDelayTargetLogin_SameRegistryDifferentCredentials(t *testing.T) {
 	task := &relayv1.TaskAssignment{
-		SourceRegistry: "image.hm.metavarse.tech:9443",
-		TargetRegistry: "image.hm.metavarse.tech:9443",
+		SourceRegistry: "registry.example.com:9443",
+		TargetRegistry: "registry.example.com:9443",
 	}
 	cfg := config.AgentConfig{
 		SourceUsername: "robot-source",
@@ -26,8 +26,8 @@ func TestShouldDelayTargetLogin_SameRegistryDifferentCredentials(t *testing.T) {
 
 func TestShouldDelayTargetLogin_SameRegistrySameCredentials(t *testing.T) {
 	task := &relayv1.TaskAssignment{
-		SourceRegistry: "image.hm.metavarse.tech:9443",
-		TargetRegistry: "image.hm.metavarse.tech:9443",
+		SourceRegistry: "registry.example.com:9443",
+		TargetRegistry: "registry.example.com:9443",
 	}
 	cfg := config.AgentConfig{
 		SourceUsername: "robot",
@@ -43,7 +43,7 @@ func TestShouldDelayTargetLogin_SameRegistrySameCredentials(t *testing.T) {
 
 func TestShouldDelayTargetLogin_DifferentRegistry(t *testing.T) {
 	task := &relayv1.TaskAssignment{
-		SourceRegistry: "image.hm.metavarse.tech:9443",
+		SourceRegistry: "registry.example.com:9443",
 		TargetRegistry: "sealos.hub:5000",
 	}
 	cfg := config.AgentConfig{
@@ -66,8 +66,8 @@ func TestDockerArgs_UsesDedicatedConfigDir(t *testing.T) {
 		},
 	}
 
-	got := a.dockerArgs("pull", "image.hm.metavarse.tech:9443/test:v1")
-	want := []string{"--config", "/data/harbor-relay/docker-config", "pull", "image.hm.metavarse.tech:9443/test:v1"}
+	got := a.dockerArgs("pull", "registry.example.com:9443/test:v1")
+	want := []string{"--config", "/data/harbor-relay/docker-config", "pull", "registry.example.com:9443/test:v1"}
 	if len(got) != len(want) {
 		t.Fatalf("unexpected arg length: got=%v want=%v", got, want)
 	}

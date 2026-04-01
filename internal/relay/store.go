@@ -10,6 +10,7 @@ import (
 	"time"
 
 	relayv1 "github.com/yuanyp8/harbor-relay/gen/proto/relay/v1"
+	callbackmod "github.com/yuanyp8/harbor-relay/internal/callback"
 )
 
 // Store 是 relay 的轻量持久层。
@@ -25,8 +26,10 @@ func NewStore(path string) (*Store, error) {
 	s := &Store{
 		path: path,
 		state: State{
-			Tasks:  map[string]*Task{},
-			Agents: map[string]*Agent{},
+			Tasks:                    map[string]*Task{},
+			Agents:                   map[string]*Agent{},
+			NotificationJobs:         map[string]*NotificationJob{},
+			NotificationChannelState: map[string]*NotificationChannelState{},
 		},
 	}
 	if err := s.load(); err != nil {
@@ -55,6 +58,12 @@ func (s *Store) load() error {
 	}
 	if state.Agents == nil {
 		state.Agents = map[string]*Agent{}
+	}
+	if state.NotificationJobs == nil {
+		state.NotificationJobs = map[string]*NotificationJob{}
+	}
+	if state.NotificationChannelState == nil {
+		state.NotificationChannelState = map[string]*NotificationChannelState{}
 	}
 	s.state = state
 	return nil
@@ -216,6 +225,7 @@ func (s *Store) AssignNextTask(siteName string, channels []string, agentID strin
 	taskCopy.TargetRefs = slices.Clone(selected.TargetRefs)
 	taskCopy.TargetRefDescriptors = slices.Clone(selected.TargetRefDescriptors)
 	taskCopy.Metadata = cloneMap(selected.Metadata)
+	taskCopy.NotifiedEvents = cloneTimeMap(selected.NotifiedEvents)
 	return &taskCopy, nil
 }
 
@@ -253,6 +263,36 @@ func (s *Store) UpdateTaskProgress(agentID, taskID string, status relayv1.TaskSt
 	taskCopy.TargetRefs = slices.Clone(task.TargetRefs)
 	taskCopy.TargetRefDescriptors = slices.Clone(task.TargetRefDescriptors)
 	taskCopy.Metadata = cloneMap(task.Metadata)
+	taskCopy.NotifiedEvents = cloneTimeMap(task.NotifiedEvents)
+	return &taskCopy, nil
+}
+
+func (s *Store) UpdateTaskCallbackResult(taskID, callbackStatus, callbackMessage string) (*Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, ok := s.state.Tasks[taskID]
+	if !ok {
+		return nil, fmt.Errorf("task not found: %s", taskID)
+	}
+
+	now := time.Now()
+	task.CallbackStatus = callbackStatus
+	task.CallbackMessage = callbackMessage
+	task.CallbackUpdatedAt = now
+	task.UpdatedAt = now
+
+	if err := s.saveLocked(); err != nil {
+		return nil, err
+	}
+
+	taskCopy := *task
+	taskCopy.Tags = slices.Clone(task.Tags)
+	taskCopy.SourceRefs = slices.Clone(task.SourceRefs)
+	taskCopy.TargetRefs = slices.Clone(task.TargetRefs)
+	taskCopy.TargetRefDescriptors = slices.Clone(task.TargetRefDescriptors)
+	taskCopy.Metadata = cloneMap(task.Metadata)
+	taskCopy.NotifiedEvents = cloneTimeMap(task.NotifiedEvents)
 	return &taskCopy, nil
 }
 
@@ -268,10 +308,38 @@ func (s *Store) ListTasks() []*Task {
 		taskCopy.TargetRefs = slices.Clone(task.TargetRefs)
 		taskCopy.TargetRefDescriptors = slices.Clone(task.TargetRefDescriptors)
 		taskCopy.Metadata = cloneMap(task.Metadata)
+		taskCopy.NotifiedEvents = cloneTimeMap(task.NotifiedEvents)
 		result = append(result, &taskCopy)
 	}
 	slices.SortFunc(result, func(a, b *Task) int {
 		switch {
+		case a.CreatedAt.Before(b.CreatedAt):
+			return -1
+		case a.CreatedAt.After(b.CreatedAt):
+			return 1
+		default:
+			return 0
+		}
+	})
+	return result
+}
+
+func (s *Store) ListNotificationJobs() []*NotificationJob {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]*NotificationJob, 0, len(s.state.NotificationJobs))
+	for _, job := range s.state.NotificationJobs {
+		jobCopy := *job
+		jobCopy.Payload = cloneTaskEvent(job.Payload)
+		result = append(result, &jobCopy)
+	}
+	slices.SortFunc(result, func(a, b *NotificationJob) int {
+		switch {
+		case a.NextAttemptAt.Before(b.NextAttemptAt):
+			return -1
+		case a.NextAttemptAt.After(b.NextAttemptAt):
+			return 1
 		case a.CreatedAt.Before(b.CreatedAt):
 			return -1
 		case a.CreatedAt.After(b.CreatedAt):
@@ -320,7 +388,198 @@ func (s *Store) GetTask(taskID string) (*Task, bool) {
 	taskCopy.TargetRefs = slices.Clone(task.TargetRefs)
 	taskCopy.TargetRefDescriptors = slices.Clone(task.TargetRefDescriptors)
 	taskCopy.Metadata = cloneMap(task.Metadata)
+	taskCopy.NotifiedEvents = cloneTimeMap(task.NotifiedEvents)
 	return &taskCopy, true
+}
+
+func (s *Store) HasTaskEventNotification(taskID, event string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	task, ok := s.state.Tasks[taskID]
+	if !ok || len(task.NotifiedEvents) == 0 {
+		return false
+	}
+	_, exists := task.NotifiedEvents[event]
+	return exists
+}
+
+func (s *Store) MarkTaskEventNotified(taskID, event string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, ok := s.state.Tasks[taskID]
+	if !ok {
+		return fmt.Errorf("task not found: %s", taskID)
+	}
+	if task.NotifiedEvents == nil {
+		task.NotifiedEvents = make(map[string]time.Time)
+	}
+	task.NotifiedEvents[event] = time.Now()
+	task.UpdatedAt = time.Now()
+	return s.saveLocked()
+}
+
+func (s *Store) HasPendingNotificationJob(taskID, receiptKey string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, job := range s.state.NotificationJobs {
+		if job.TaskID != taskID || job.ReceiptKey != receiptKey {
+			continue
+		}
+		if isQueuedNotificationStatus(job.Status) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) EnqueueNotificationJobs(jobs []*NotificationJob) error {
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, job := range jobs {
+		existing, ok := s.state.NotificationJobs[job.ID]
+		if ok {
+			if isQueuedNotificationStatus(existing.Status) {
+				continue
+			}
+			existing.Status = NotificationJobStatusPending
+			existing.Payload = cloneTaskEvent(job.Payload)
+			existing.NextAttemptAt = job.NextAttemptAt
+			existing.LastError = ""
+			existing.Attempts = 0
+			existing.UpdatedAt = time.Now()
+			continue
+		}
+		jobCopy := *job
+		jobCopy.Payload = cloneTaskEvent(job.Payload)
+		s.state.NotificationJobs[job.ID] = &jobCopy
+	}
+	return s.saveLocked()
+}
+
+func (s *Store) ListDueNotificationJobs(now time.Time, limit int) []*NotificationJob {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]*NotificationJob, 0)
+	for _, job := range s.state.NotificationJobs {
+		if !isQueuedNotificationStatus(job.Status) {
+			continue
+		}
+		if job.NextAttemptAt.After(now) {
+			continue
+		}
+		jobCopy := *job
+		jobCopy.Payload = cloneTaskEvent(job.Payload)
+		result = append(result, &jobCopy)
+	}
+	slices.SortFunc(result, func(a, b *NotificationJob) int {
+		switch {
+		case a.NextAttemptAt.Before(b.NextAttemptAt):
+			return -1
+		case a.NextAttemptAt.After(b.NextAttemptAt):
+			return 1
+		case a.CreatedAt.Before(b.CreatedAt):
+			return -1
+		case a.CreatedAt.After(b.CreatedAt):
+			return 1
+		default:
+			return 0
+		}
+	})
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result
+}
+
+func (s *Store) GetNotificationChannelState(channelKey string) (*NotificationChannelState, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	state, ok := s.state.NotificationChannelState[channelKey]
+	if !ok {
+		return nil, false
+	}
+	stateCopy := *state
+	return &stateCopy, true
+}
+
+func (s *Store) MarkNotificationJobDelivered(jobID, taskID, receiptKey string, sentAt, nextAllowedAt time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, ok := s.state.NotificationJobs[jobID]
+	if !ok {
+		return fmt.Errorf("notification job not found: %s", jobID)
+	}
+	if task, exists := s.state.Tasks[taskID]; exists {
+		if task.NotifiedEvents == nil {
+			task.NotifiedEvents = make(map[string]time.Time)
+		}
+		task.NotifiedEvents[receiptKey] = sentAt
+		task.UpdatedAt = sentAt
+	}
+
+	channelState := s.ensureNotificationChannelStateLocked(job.ChannelKey, job.SiteName, job.ChannelName)
+	channelState.LastSentAt = sentAt
+	channelState.NextAllowedAt = nextAllowedAt
+	channelState.LastError = ""
+	channelState.UpdatedAt = sentAt
+
+	delete(s.state.NotificationJobs, jobID)
+	return s.saveLocked()
+}
+
+func (s *Store) RescheduleNotificationJob(jobID string, nextAttemptAt time.Time, lastError string, blockedUntil time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, ok := s.state.NotificationJobs[jobID]
+	if !ok {
+		return fmt.Errorf("notification job not found: %s", jobID)
+	}
+	job.Status = NotificationJobStatusRetrying
+	job.Attempts++
+	job.NextAttemptAt = nextAttemptAt
+	job.LastError = lastError
+	job.UpdatedAt = time.Now()
+
+	channelState := s.ensureNotificationChannelStateLocked(job.ChannelKey, job.SiteName, job.ChannelName)
+	if blockedUntil.After(channelState.NextAllowedAt) {
+		channelState.NextAllowedAt = blockedUntil
+	}
+	channelState.LastError = lastError
+	channelState.UpdatedAt = time.Now()
+
+	return s.saveLocked()
+}
+
+func (s *Store) MarkNotificationJobFailed(jobID, lastError string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, ok := s.state.NotificationJobs[jobID]
+	if !ok {
+		return fmt.Errorf("notification job not found: %s", jobID)
+	}
+	job.Status = NotificationJobStatusFailed
+	job.Attempts++
+	job.LastError = lastError
+	job.UpdatedAt = time.Now()
+
+	channelState := s.ensureNotificationChannelStateLocked(job.ChannelKey, job.SiteName, job.ChannelName)
+	channelState.LastError = lastError
+	channelState.UpdatedAt = time.Now()
+
+	return s.saveLocked()
 }
 
 func (s *Store) PendingTaskStats(siteName string, channels []string) (totalPending, sameSitePending, assignablePending int) {
@@ -358,6 +617,45 @@ func cloneMap(src map[string]string) map[string]string {
 		dst[k] = v
 	}
 	return dst
+}
+
+func cloneTimeMap(src map[string]time.Time) map[string]time.Time {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]time.Time, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func cloneTaskEvent(src callbackmod.TaskEvent) callbackmod.TaskEvent {
+	cloned := src
+	cloned.Tags = slices.Clone(src.Tags)
+	cloned.SourceRefs = slices.Clone(src.SourceRefs)
+	cloned.TargetRefs = slices.Clone(src.TargetRefs)
+	cloned.TargetRefDescriptors = slices.Clone(src.TargetRefDescriptors)
+	cloned.Metadata = cloneMap(src.Metadata)
+	return cloned
+}
+
+func isQueuedNotificationStatus(status NotificationJobStatus) bool {
+	return status == NotificationJobStatusPending || status == NotificationJobStatusRetrying
+}
+
+func (s *Store) ensureNotificationChannelStateLocked(channelKey, siteName, channelName string) *NotificationChannelState {
+	if state, ok := s.state.NotificationChannelState[channelKey]; ok {
+		return state
+	}
+	state := &NotificationChannelState{
+		ChannelKey:  channelKey,
+		SiteName:    siteName,
+		ChannelName: channelName,
+		UpdatedAt:   time.Now(),
+	}
+	s.state.NotificationChannelState[channelKey] = state
+	return state
 }
 
 // channelAllowed 用于判断某个任务 channel 是否被 agent 订阅。

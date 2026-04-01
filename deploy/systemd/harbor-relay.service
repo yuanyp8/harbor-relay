@@ -1,5 +1,6 @@
 [Unit]
 Description=Harbor Relay
+Documentation=https://github.com/yuanyp8/harbor-relay
 After=network-online.target
 Wants=network-online.target
 
@@ -7,8 +8,8 @@ Wants=network-online.target
 Type=simple
 User=root
 Group=root
+WorkingDirectory=/var/lib/harbor-relay
 ExecStart=/usr/local/bin/harbor-relay --config /etc/harbor-relay/relay.yaml
-WorkingDirectory=/data/harbor-relay
 Restart=always
 RestartSec=5
 LimitNOFILE=1048576

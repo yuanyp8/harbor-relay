@@ -25,6 +25,7 @@ func (s *Service) HTTPHandler() http.Handler {
 	mux.HandleFunc("/api/v1/tasks", s.handleTasks)
 	mux.HandleFunc("/api/v1/tasks/", s.handleTaskByID)
 	mux.HandleFunc("/api/v1/agents", s.handleAgents)
+	mux.HandleFunc("/api/v1/notification-jobs", s.handleNotificationJobs)
 	return s.withAccessLog(mux)
 }
 
@@ -105,5 +106,16 @@ func (s *Service) handleAgents(w http.ResponseWriter, r *http.Request) {
 	s.logger.Debug("agents list requested")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items": s.store.ListAgents(),
+	})
+}
+
+func (s *Service) handleNotificationJobs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	s.logger.Debug("notification jobs list requested")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": s.store.ListNotificationJobs(),
 	})
 }

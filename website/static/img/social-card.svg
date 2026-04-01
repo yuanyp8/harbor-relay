@@ -1,0 +1,13 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#0F172A"/>
+  <circle cx="174" cy="118" r="160" fill="#14B8A6" fill-opacity="0.18"/>
+  <circle cx="1020" cy="528" r="190" fill="#F59E0B" fill-opacity="0.16"/>
+  <rect x="80" y="92" width="190" height="118" rx="24" fill="#14B8A6"/>
+  <rect x="328" y="92" width="190" height="118" rx="24" fill="#F59E0B"/>
+  <rect x="204" y="268" width="190" height="118" rx="24" fill="#38BDF8"/>
+  <path d="M270 150H328" stroke="#E2E8F0" stroke-width="18" stroke-linecap="round"/>
+  <path d="M423 210V246L366 268" stroke="#E2E8F0" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M175 210V246L232 268" stroke="#E2E8F0" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="560" y="230" fill="#F8FAFC" font-family="IBM Plex Sans, Arial, sans-serif" font-size="68" font-weight="700">Harbor Relay</text>
+  <text x="560" y="312" fill="#CBD5E1" font-family="IBM Plex Sans, Arial, sans-serif" font-size="32">Webhook · Routing · Agent · Callback · Notification</text>
+</svg>

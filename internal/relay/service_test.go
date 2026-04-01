@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -35,7 +36,7 @@ func TestHandleWebhook_QueuesTasksByRouteAndChannel(t *testing.T) {
 
 	cfg := config.RelayConfig{
 		ServiceName:    "harbor-relay",
-		SourceRegistry: "image.hm.metavarse.tech:9443",
+		SourceRegistry: "registry.example.com:9443",
 		Webhooks: []config.WebhookConfig{
 			{
 				Name:          "default",
@@ -112,7 +113,7 @@ func TestHandleWebhook_QueuesTasksByRouteAndChannel(t *testing.T) {
 		if task.Repository != "kube4/mysql" {
 			t.Fatalf("unexpected repository: %s", task.Repository)
 		}
-		if task.SourceRegistry != "image.hm.metavarse.tech:9443" {
+		if task.SourceRegistry != "registry.example.com:9443" {
 			t.Fatalf("unexpected source registry: %s", task.SourceRegistry)
 		}
 		if len(task.Tags) != 2 {
@@ -185,7 +186,7 @@ func TestHandleWebhook_RespectsWebhookScopedRoutes(t *testing.T) {
 	}
 
 	cfg := config.RelayConfig{
-		SourceRegistry: "image.hm.metavarse.tech:9443",
+		SourceRegistry: "registry.example.com:9443",
 		Webhooks: []config.WebhookConfig{
 			{Name: "default", Path: "/api/v1/harbor/webhook"},
 			{Name: "cmict", Path: "/api/v1/harbor/webhook/cmict"},
@@ -256,23 +257,24 @@ func TestTriggerCallback(t *testing.T) {
 	service := NewService(config.RelayConfig{}, store, testLogger())
 
 	task := &Task{
-		ID:               "task-1",
-		EventID:          "event-1",
-		SiteName:         "dc1",
-		SourceRegistry:   "image.hm.metavarse.tech:9443",
-		Repository:       "kube4/mysql",
-		Digest:           "sha256:test",
-		Tags:             []string{"8.0.45"},
-		SourcePullRef:    "image.hm.metavarse.tech:9443/kube4/mysql@sha256:test",
-		SourceRefs:       []string{"image.hm.metavarse.tech:9443/kube4/mysql:8.0.45@sha256:test"},
-		TargetRegistry:   "sealos.hub:5000",
-		TargetRepository: "kube4/mysql",
-		TargetRefs:       []string{"sealos.hub:5000/kube4/mysql:8.0.45"},
+		ID:                   "task-1",
+		EventID:              "event-1",
+		SiteName:             "dc1",
+		SourceRegistry:       "registry.example.com:9443",
+		Repository:           "kube4/mysql",
+		Digest:               "sha256:test",
+		Tags:                 []string{"8.0.45"},
+		SourcePullRef:        "registry.example.com:9443/kube4/mysql@sha256:test",
+		SourceRefs:           []string{"registry.example.com:9443/kube4/mysql:8.0.45@sha256:test"},
+		TargetRegistry:       "sealos.hub:5000",
+		TargetRepository:     "kube4/mysql",
+		TargetRefs:           []string{"sealos.hub:5000/kube4/mysql:8.0.45"},
 		TargetRefDescriptors: []string{"sealos.hub:5000/kube4/mysql:8.0.45@sha256:test"},
-		CallbackURL:      callbackServer.URL,
-		CallbackToken:    "callback-token",
-		Status:           relayv1.TaskStatus_TASK_STATUS_DONE,
-		UpdatedAt:        time.Now(),
+		CallbackEnabled:      true,
+		CallbackURL:          callbackServer.URL,
+		CallbackToken:        "callback-token",
+		Status:               relayv1.TaskStatus_TASK_STATUS_DONE,
+		UpdatedAt:            time.Now(),
 	}
 
 	if err := service.TriggerCallback(context.Background(), task); err != nil {
@@ -290,16 +292,16 @@ func TestHandleWebhook_LogsDetailedProcessingFlow(t *testing.T) {
 	}
 
 	cfg := config.RelayConfig{
-		SourceRegistry: "image.hm.metavarse.tech:9443",
+		SourceRegistry: "registry.example.com:9443",
 		Webhooks: []config.WebhookConfig{
 			{Name: "yunnan", Path: "/api/v1/harbor/webhook/yunnan", Authorization: "Bearer test-secret"},
 		},
 		Routes: []config.RouteConfig{
 			{
 				Name:               "yunnan-route",
-				Channel:            "yunnan-mid",
+				Channel:            "team-a",
 				WebhookNames:       []string{"yunnan"},
-				RepositoryPatterns: []string{"yunnan-mid/**"},
+				RepositoryPatterns: []string{"team-a/**"},
 				TargetSites:        []string{"local-test"},
 			},
 		},
@@ -307,15 +309,15 @@ func TestHandleWebhook_LogsDetailedProcessingFlow(t *testing.T) {
 			{
 				Name:           "local-test",
 				SiteName:       "local-test",
-				TargetRegistry: "image.hm.metavarse.tech:9443",
-				TargetProject:  "yunnan-mid-test",
+				TargetRegistry: "registry.example.com:9443",
+				TargetProject:  "team-a-dr",
 			},
 		},
 	}
 
 	logger, logBuf := bufferedTestLogger()
 	service := NewService(cfg, store, logger)
-	body := []byte(`{"type":"PUSH_ARTIFACT","event_data":{"repository":{"repo_full_name":"yunnan-mid/registry-photon"},"resources":[{"digest":"sha256:cccc","tag":"v2.15.0"}]}}`)
+	body := []byte(`{"type":"PUSH_ARTIFACT","event_data":{"repository":{"repo_full_name":"team-a/registry-photon"},"resources":[{"digest":"sha256:cccc","tag":"v2.15.0"}]}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/harbor/webhook/yunnan", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer test-secret")
 	rr := httptest.NewRecorder()
@@ -330,7 +332,7 @@ func TestHandleWebhook_LogsDetailedProcessingFlow(t *testing.T) {
 	for _, want := range []string{
 		"webhook request received",
 		"webhook body accepted",
-		"yunnan-mid/registry-photon",
+		"team-a/registry-photon",
 		"webhook resources grouped by digest",
 		"route matched repository",
 		"task created from route",
@@ -349,16 +351,16 @@ func TestHandleWebhook_TargetProjectRewriteAndSourceRefs(t *testing.T) {
 	}
 
 	cfg := config.RelayConfig{
-		SourceRegistry: "image.hm.metavarse.tech:9443",
+		SourceRegistry: "registry.example.com:9443",
 		Webhooks: []config.WebhookConfig{
 			{Name: "yunnan", Path: "/api/v1/harbor/webhook/yunnan"},
 		},
 		Routes: []config.RouteConfig{
 			{
 				Name:               "yunnan-route",
-				Channel:            "yunnan-mid",
+				Channel:            "team-a",
 				WebhookNames:       []string{"yunnan"},
-				RepositoryPatterns: []string{"yunnan-mid/**"},
+				RepositoryPatterns: []string{"team-a/**"},
 				TargetSites:        []string{"local-test"},
 			},
 		},
@@ -366,14 +368,14 @@ func TestHandleWebhook_TargetProjectRewriteAndSourceRefs(t *testing.T) {
 			{
 				Name:           "local-test",
 				SiteName:       "local-test",
-				TargetRegistry: "image.hm.metavarse.tech:9443",
-				TargetProject:  "yunnan-mid-test",
+				TargetRegistry: "registry.example.com:9443",
+				TargetProject:  "team-a-dr",
 			},
 		},
 	}
 
 	service := NewService(cfg, store, testLogger())
-	body := []byte(`{"type":"PUSH_ARTIFACT","event_data":{"repository":{"repo_full_name":"yunnan-mid/registry-photon"},"resources":[{"digest":"sha256:cccc","tag":"v2.15.0"}]}}`)
+	body := []byte(`{"type":"PUSH_ARTIFACT","event_data":{"repository":{"repo_full_name":"team-a/registry-photon"},"resources":[{"digest":"sha256:cccc","tag":"v2.15.0"}]}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/harbor/webhook/yunnan", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 
@@ -388,14 +390,87 @@ func TestHandleWebhook_TargetProjectRewriteAndSourceRefs(t *testing.T) {
 		t.Fatalf("expected 1 task, got %d", len(tasks))
 	}
 	task := tasks[0]
-	if task.TargetRepository != "yunnan-mid-test/registry-photon" {
+	if task.TargetRepository != "team-a-dr/registry-photon" {
 		t.Fatalf("unexpected target repository: %s", task.TargetRepository)
 	}
-	if task.SourcePullRef != "image.hm.metavarse.tech:9443/yunnan-mid/registry-photon@sha256:cccc" {
+	if task.SourcePullRef != "registry.example.com:9443/team-a/registry-photon@sha256:cccc" {
 		t.Fatalf("unexpected source pull ref: %s", task.SourcePullRef)
 	}
-	if len(task.SourceRefs) != 1 || task.SourceRefs[0] != "image.hm.metavarse.tech:9443/yunnan-mid/registry-photon:v2.15.0@sha256:cccc" {
+	if len(task.SourceRefs) != 1 || task.SourceRefs[0] != "registry.example.com:9443/team-a/registry-photon:v2.15.0@sha256:cccc" {
 		t.Fatalf("unexpected source refs: %#v", task.SourceRefs)
+	}
+}
+
+func TestHandleWebhook_QueuedNotificationTriggered(t *testing.T) {
+	var gotMessage string
+	robotServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMessage = r.URL.Query().Get("msg")
+		_, _ = io.WriteString(w, `{"success":true}`)
+	}))
+	defer robotServer.Close()
+
+	store, err := NewStore("")
+	if err != nil {
+		t.Fatalf("new store failed: %v", err)
+	}
+
+	cfg := config.RelayConfig{
+		SourceRegistry: "registry.example.com:9443",
+		Webhooks: []config.WebhookConfig{
+			{Name: "yunnan", Path: "/api/v1/harbor/webhook/yunnan", Authorization: "Bearer test-secret"},
+		},
+		Routes: []config.RouteConfig{
+			{
+				Name:               "yunnan-route",
+				Channel:            "team-a",
+				WebhookNames:       []string{"yunnan"},
+				RepositoryPatterns: []string{"team-a/**"},
+				TargetSites:        []string{"team-a"},
+			},
+		},
+		Targets: []config.TargetConfig{
+			{
+				Name:           "team-a",
+				SiteName:       "team-a",
+				TargetRegistry: "registry.example.com:9443",
+				TargetProject:  "team-a-dr",
+				Notifications: []config.NotificationConfig{
+					{
+						Name:        "ops-group",
+						Type:        "onemsg_robot",
+						Endpoint:    robotServer.URL,
+						RobotKey:    "replace-with-robot-key",
+						Events:      []string{"queued"},
+						TitlePrefix: "云南中台",
+					},
+				},
+			},
+		},
+	}
+
+	service := NewService(cfg, store, testLogger())
+	body := []byte(`{"type":"PUSH_ARTIFACT","event_data":{"repository":{"repo_full_name":"team-a/registry-photon"},"resources":[{"digest":"sha256:queued","tag":"v2.15.0"}]}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/harbor/webhook/yunnan", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-secret")
+	rr := httptest.NewRecorder()
+
+	service.HandleWebhook(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("unexpected status: %d body=%s", rr.Code, rr.Body.String())
+	}
+	if err := service.processNotificationQueueOnce(context.Background()); err != nil {
+		t.Fatalf("process notification queue failed: %v", err)
+	}
+	if gotMessage == "" {
+		t.Fatal("expected queued notification to be sent")
+	}
+	decoded, err := url.QueryUnescape(gotMessage)
+	if err != nil {
+		t.Fatalf("decode msg failed: %v", err)
+	}
+	if !strings.Contains(decoded, "镜像同步已入队") {
+		t.Fatalf("unexpected notification message: %s", decoded)
 	}
 }
 

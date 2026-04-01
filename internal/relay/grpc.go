@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	relayv1 "github.com/yuanyp8/harbor-relay/gen/proto/relay/v1"
+	callbackmod "github.com/yuanyp8/harbor-relay/internal/callback"
 )
 
 // GRPCServer 对外暴露 Agent <-> Relay 的双向流接口。
@@ -126,17 +127,33 @@ func (s *GRPCServer) Connect(stream relayv1.RelayService_ConnectServer) error {
 				return status.Errorf(codes.Internal, "update progress failed: %v", err)
 			}
 
-			if payload.Progress.Status == relayv1.TaskStatus_TASK_STATUS_DONE && task.CallbackURL != "" {
-				if cbErr := s.service.TriggerCallback(ctx, task); cbErr != nil {
-					_, _ = s.service.store.UpdateTaskProgress(
-						hello.AgentId,
-						payload.Progress.TaskId,
-						relayv1.TaskStatus_TASK_STATUS_CALLBACK_PENDING,
-						"callback failed: "+cbErr.Error(),
-						payload.Progress.TargetRefs,
-						payload.Progress.TargetRefDescriptors,
-					)
-					s.logger.Error("callback failed", "task_id", task.ID, "err", cbErr)
+			if payload.Progress.Status == relayv1.TaskStatus_TASK_STATUS_DONE {
+				if notifyErr := s.service.notifyTaskEvent(ctx, task, callbackmod.EventDone); notifyErr != nil {
+					s.logger.Error("done notification failed", "task_id", task.ID, "err", notifyErr)
+				}
+
+				if task.CallbackEnabled && task.CallbackURL != "" {
+					if cbErr := s.service.TriggerCallback(ctx, task); cbErr != nil {
+						task, _ = s.service.store.UpdateTaskCallbackResult(
+							payload.Progress.TaskId,
+							"failed",
+							"callback failed: "+cbErr.Error(),
+						)
+						if task != nil {
+							s.logger.Error("callback failed", "task_id", task.ID, "err", cbErr)
+							if notifyErr := s.service.notifyTaskEvent(ctx, task, callbackmod.EventCallbackFailed); notifyErr != nil {
+								s.logger.Error("callback failed notification failed", "task_id", task.ID, "err", notifyErr)
+							}
+						}
+					} else {
+						if _, markErr := s.service.store.UpdateTaskCallbackResult(payload.Progress.TaskId, "success", "callback delivered"); markErr != nil {
+							s.logger.Error("callback success state update failed", "task_id", payload.Progress.TaskId, "err", markErr)
+						}
+					}
+				}
+			} else if event, ok := taskStatusToNotificationEvent(payload.Progress.Status); ok {
+				if notifyErr := s.service.notifyTaskEvent(ctx, task, event); notifyErr != nil {
+					s.logger.Error("task notification failed", "task_id", task.ID, "event", string(event), "err", notifyErr)
 				}
 			}
 
@@ -146,6 +163,21 @@ func (s *GRPCServer) Connect(stream relayv1.RelayService_ConnectServer) error {
 		default:
 			s.logger.Warn("unsupported agent payload", "agent_id", hello.AgentId)
 		}
+	}
+}
+
+func taskStatusToNotificationEvent(status relayv1.TaskStatus) (callbackmod.Event, bool) {
+	switch status {
+	case relayv1.TaskStatus_TASK_STATUS_PULLING:
+		return callbackmod.EventPulling, true
+	case relayv1.TaskStatus_TASK_STATUS_PUSHING:
+		return callbackmod.EventPushing, true
+	case relayv1.TaskStatus_TASK_STATUS_FAILED:
+		return callbackmod.EventFailed, true
+	case relayv1.TaskStatus_TASK_STATUS_CALLBACK_PENDING:
+		return callbackmod.EventCallbackFailed, true
+	default:
+		return "", false
 	}
 }
 

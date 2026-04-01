@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	configPath := flag.String("config", "./configs/agent.yaml", "agent 配置文件路径")
+	configPath := flag.String("config", "/etc/harbor-relay/agent.yaml", "path to the agent config file")
 	flag.Parse()
 
 	bootstrapLogger := logutil.New("agent", "info", "text")

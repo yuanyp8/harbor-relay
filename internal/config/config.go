@@ -3,12 +3,14 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
-// RelayConfig 描述 relay 进程自身的监听地址、路由规则、目标站点和 webhook 入口。
+// RelayConfig describes the relay process itself: listeners, routes,
+// target sites, notification channels, and webhook entry points.
 type RelayConfig struct {
 	ServiceName    string          `yaml:"service_name"`
 	HTTPListen     string          `yaml:"http_listen"`
@@ -23,8 +25,8 @@ type RelayConfig struct {
 	Targets        []TargetConfig  `yaml:"targets"`
 }
 
-// WebhookConfig 描述一个 Harbor webhook 入口。
-// 一个 relay 可以同时承接多个 path，也可以给不同项目分配不同鉴权头。
+// WebhookConfig describes one Harbor webhook entry point.
+// A single relay can expose multiple paths with different auth headers.
 type WebhookConfig struct {
 	Name           string `yaml:"name"`
 	Path           string `yaml:"path"`
@@ -33,8 +35,8 @@ type WebhookConfig struct {
 	Enabled        *bool  `yaml:"enabled"`
 }
 
-// RouteConfig 把 Harbor 仓库模式映射为逻辑 channel，再映射到一个或多个 target site。
-// channel 是调度维度，远端 agent 只订阅自己关心的 channel。
+// RouteConfig maps Harbor repositories to a logical channel,
+// then maps that channel to one or more target sites.
 type RouteConfig struct {
 	Name               string   `yaml:"name"`
 	Channel            string   `yaml:"channel"`
@@ -44,20 +46,40 @@ type RouteConfig struct {
 	TargetSites        []string `yaml:"target_sites"`
 }
 
-// TargetConfig 描述一个远端站点的目标仓库信息和回调配置。
+// TargetConfig describes the destination site and the post-sync callback/notification settings.
 type TargetConfig struct {
-	Name               string   `yaml:"name"`
-	SiteName           string   `yaml:"site_name"`
-	Enabled            *bool    `yaml:"enabled"`
-	TargetRegistry     string   `yaml:"target_registry"`
-	TargetProject      string   `yaml:"target_project"`
-	RepositoryPrefix   string   `yaml:"repository_prefix"`
-	RepositoryPatterns []string `yaml:"repository_patterns"`
-	CallbackURL        string   `yaml:"callback_url"`
-	CallbackToken      string   `yaml:"callback_token"`
+	Name               string               `yaml:"name"`
+	SiteName           string               `yaml:"site_name"`
+	Enabled            *bool                `yaml:"enabled"`
+	TargetRegistry     string               `yaml:"target_registry"`
+	TargetProject      string               `yaml:"target_project"`
+	RepositoryPrefix   string               `yaml:"repository_prefix"`
+	RepositoryPatterns []string             `yaml:"repository_patterns"`
+	CallbackEnabled    *bool                `yaml:"callback_enabled"`
+	CallbackURL        string               `yaml:"callback_url"`
+	CallbackToken      string               `yaml:"callback_token"`
+	Notifications      []NotificationConfig `yaml:"notifications"`
 }
 
-// AgentConfig 描述远端 agent 如何连接 relay、以及如何登录源/目标仓库。
+// NotificationConfig describes one outbound notification channel.
+// The current implementation focuses on OneMsg robots, but the model is
+// intentionally generic so more gateways can be added later.
+type NotificationConfig struct {
+	Name          string        `yaml:"name"`
+	Type          string        `yaml:"type"`
+	Enabled       *bool         `yaml:"enabled"`
+	Endpoint      string        `yaml:"endpoint"`
+	RobotKey      string        `yaml:"robot_key"`
+	Events        []string      `yaml:"events"`
+	Timeout       time.Duration `yaml:"timeout"`
+	TitlePrefix   string        `yaml:"title_prefix"`
+	MinInterval   time.Duration `yaml:"min_interval"`
+	RetryInterval time.Duration `yaml:"retry_interval"`
+	MaxAttempts   int           `yaml:"max_attempts"`
+}
+
+// AgentConfig describes how one remote agent connects to relay
+// and how it logs in to source/target registries.
 type AgentConfig struct {
 	AgentID            string        `yaml:"agent_id"`
 	SiteName           string        `yaml:"site_name"`
@@ -82,7 +104,7 @@ type AgentConfig struct {
 	InsecureSkipVerify bool          `yaml:"insecure_skip_verify"`
 }
 
-// LoadRelayConfig 负责加载 relay 配置，并补齐向后兼容的默认值。
+// LoadRelayConfig loads relay.yaml and fills backward-compatible defaults.
 func LoadRelayConfig(path string) (RelayConfig, error) {
 	var cfg RelayConfig
 	if err := load(path, &cfg); err != nil {
@@ -105,7 +127,7 @@ func LoadRelayConfig(path string) (RelayConfig, error) {
 		cfg.GRPCListen = ":19090"
 	}
 	if cfg.DataFile == "" {
-		cfg.DataFile = "./data/relay-state.json"
+		cfg.DataFile = "/var/lib/harbor-relay/relay-state.json"
 	}
 	if cfg.Webhook.Path == "" {
 		cfg.Webhook.Path = "/api/v1/harbor/webhook"
@@ -136,11 +158,29 @@ func LoadRelayConfig(path string) (RelayConfig, error) {
 		if cfg.Targets[i].SiteName == "" {
 			cfg.Targets[i].SiteName = cfg.Targets[i].Name
 		}
+		for j := range cfg.Targets[i].Notifications {
+			notification := &cfg.Targets[i].Notifications[j]
+			if notification.Name == "" {
+				notification.Name = fmt.Sprintf("%s-notify-%d", cfg.Targets[i].SiteName, j+1)
+			}
+			if notification.Type == "" {
+				notification.Type = "onemsg_robot"
+			}
+			if notification.Timeout == 0 {
+				notification.Timeout = 10 * time.Second
+			}
+			if notification.MinInterval == 0 {
+				notification.MinInterval = time.Minute
+			}
+			if notification.RetryInterval == 0 {
+				notification.RetryInterval = 30 * time.Second
+			}
+		}
 	}
 	return cfg, nil
 }
 
-// IsEnabled 让 enabled 为空时也按 true 处理，降低配置门槛。
+// IsEnabled returns true when the flag is unset, so configs can stay concise.
 func (w WebhookConfig) IsEnabled() bool {
 	return w.Enabled == nil || *w.Enabled
 }
@@ -149,8 +189,8 @@ func (r RouteConfig) IsEnabled() bool {
 	return r.Enabled == nil || *r.Enabled
 }
 
-// AllowsWebhook 用于控制某条 route 是否允许某个 webhook 入口命中。
-// 如果 webhook_names 为空，表示该 route 对所有 webhook 入口都生效。
+// AllowsWebhook controls whether a route may be selected by a specific webhook.
+// When webhook_names is empty, the route accepts all webhook entry points.
 func (r RouteConfig) AllowsWebhook(webhookName string) bool {
 	if len(r.WebhookNames) == 0 {
 		return true
@@ -167,7 +207,18 @@ func (t TargetConfig) IsEnabled() bool {
 	return t.Enabled == nil || *t.Enabled
 }
 
-// LoadAgentConfig 负责加载 agent 配置，并补上运行期默认值。
+func (t TargetConfig) IsCallbackEnabled() bool {
+	if t.CallbackEnabled != nil {
+		return *t.CallbackEnabled
+	}
+	return strings.TrimSpace(t.CallbackURL) != ""
+}
+
+func (n NotificationConfig) IsEnabled() bool {
+	return n.Enabled == nil || *n.Enabled
+}
+
+// LoadAgentConfig loads agent.yaml and fills runtime defaults.
 func LoadAgentConfig(path string) (AgentConfig, error) {
 	var cfg AgentConfig
 	if err := load(path, &cfg); err != nil {
@@ -193,7 +244,7 @@ func LoadAgentConfig(path string) (AgentConfig, error) {
 		cfg.DockerBinary = "docker"
 	}
 	if cfg.DockerConfigDir == "" {
-		cfg.DockerConfigDir = "./data/docker-config"
+		cfg.DockerConfigDir = "/var/lib/harbor-relay-agent/docker-config"
 	}
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = "info"

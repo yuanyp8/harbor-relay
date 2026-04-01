@@ -1,0 +1,38 @@
+:root {
+  --ifm-color-primary: #0f766e;
+  --ifm-color-primary-dark: #0c655e;
+  --ifm-color-primary-darker: #0b5f58;
+  --ifm-color-primary-darkest: #094e49;
+  --ifm-color-primary-light: #12877e;
+  --ifm-color-primary-lighter: #139089;
+  --ifm-color-primary-lightest: #18a399;
+  --ifm-code-font-size: 95%;
+  --ifm-font-family-base: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+  --ifm-heading-font-family: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+  --ifm-background-surface-color: #f8fafc;
+}
+
+body {
+  background: #f8fafc;
+}
+
+.navbar {
+  backdrop-filter: blur(16px);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.footer {
+  background: #111827;
+}
+
+.theme-doc-markdown h1,
+.theme-doc-markdown h2,
+.theme-doc-markdown h3 {
+  letter-spacing: -0.02em;
+}
+
+.theme-doc-markdown blockquote {
+  border-left: 4px solid #0f766e;
+  background: #f0fdfa;
+}

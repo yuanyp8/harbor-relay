@@ -123,8 +123,8 @@ func TestPendingTaskStats(t *testing.T) {
 		{
 			ID:        "task-1",
 			EventID:   "event-1",
-			Channel:   "yunnan-mid",
-			SiteName:  "yunnan-mid",
+			Channel:   "team-a",
+			SiteName:  "team-a",
 			Status:    relayv1.TaskStatus_TASK_STATUS_PENDING,
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -133,7 +133,7 @@ func TestPendingTaskStats(t *testing.T) {
 			ID:        "task-2",
 			EventID:   "event-2",
 			Channel:   "other-channel",
-			SiteName:  "yunnan-mid",
+			SiteName:  "team-a",
 			Status:    relayv1.TaskStatus_TASK_STATUS_PENDING,
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -141,7 +141,7 @@ func TestPendingTaskStats(t *testing.T) {
 		{
 			ID:        "task-3",
 			EventID:   "event-3",
-			Channel:   "yunnan-mid",
+			Channel:   "team-a",
 			SiteName:  "dc2",
 			Status:    relayv1.TaskStatus_TASK_STATUS_PENDING,
 			CreatedAt: now,
@@ -151,7 +151,7 @@ func TestPendingTaskStats(t *testing.T) {
 		t.Fatalf("add tasks failed: %v", err)
 	}
 
-	total, sameSite, assignable := store.PendingTaskStats("yunnan-mid", []string{"yunnan-mid"})
+	total, sameSite, assignable := store.PendingTaskStats("team-a", []string{"team-a"})
 	if total != 3 {
 		t.Fatalf("expected total pending 3, got %d", total)
 	}

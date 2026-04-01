@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,18 +16,20 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 
 	relayv1 "github.com/yuanyp8/harbor-relay/gen/proto/relay/v1"
+	callbackmod "github.com/yuanyp8/harbor-relay/internal/callback"
 	"github.com/yuanyp8/harbor-relay/internal/config"
 )
 
 // Service 是 relay 的核心调度层。
 // 它负责把 Harbor 的 webhook 事件转成内部任务，再交给 gRPC 长连接上的远端 agent 消费。
 type Service struct {
-	cfg        config.RelayConfig
-	store      *Store
-	logger     *slog.Logger
-	httpClient *http.Client
-	targets    map[string]config.TargetConfig
-	webhooks   map[string]config.WebhookConfig
+	cfg            config.RelayConfig
+	store          *Store
+	logger         *slog.Logger
+	callbackClient *callbackmod.Client
+	notifier       *callbackmod.Notifier
+	targets        map[string]config.TargetConfig
+	webhooks       map[string]config.WebhookConfig
 }
 
 // NewService builds the runtime view of relay configuration.
@@ -44,14 +45,13 @@ func NewService(cfg config.RelayConfig, store *Store, logger *slog.Logger) *Serv
 		webhooks[webhook.Path] = webhook
 	}
 	return &Service{
-		cfg:    cfg,
-		store:  store,
-		logger: logger,
-		httpClient: &http.Client{
-			Timeout: 15 * time.Second,
-		},
-		targets:  targets,
-		webhooks: webhooks,
+		cfg:            cfg,
+		store:          store,
+		logger:         logger,
+		callbackClient: callbackmod.NewClient(logger),
+		notifier:       callbackmod.NewNotifier(cfg.Targets, logger),
+		targets:        targets,
+		webhooks:       webhooks,
 	}
 }
 
@@ -245,6 +245,15 @@ func (s *Service) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to persist tasks", http.StatusInternalServerError)
 		return
 	}
+	for _, task := range tasks {
+		if err := s.notifyTaskEvent(r.Context(), task, callbackmod.EventQueued); err != nil {
+			s.logger.Error("queued notification failed",
+				"task_id", task.ID,
+				"site_name", task.SiteName,
+				"err", err,
+			)
+		}
+	}
 	s.logger.Info("webhook queued tasks successfully",
 		"webhook_name", webhookCfg.Name,
 		"event_id", eventID,
@@ -263,63 +272,11 @@ func (s *Service) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) TriggerCallback(ctx context.Context, task *Task) error {
-	if task.CallbackURL == "" {
+	if !task.CallbackEnabled || task.CallbackURL == "" {
 		return nil
 	}
 
-	payload := map[string]any{
-		"task_id":           task.ID,
-		"event_id":          task.EventID,
-		"site_name":         task.SiteName,
-		"status":            task.Status.String(),
-		"source_registry":   task.SourceRegistry,
-		"repository":        task.Repository,
-		"digest":            task.Digest,
-		"tags":              task.Tags,
-		"source_pull_ref":   task.SourcePullRef,
-		"source_refs":       task.SourceRefs,
-		"target_registry":   task.TargetRegistry,
-		"target_repository": task.TargetRepository,
-		"target_refs":       task.TargetRefs,
-		"target_ref_descriptors": task.TargetRefDescriptors,
-		"message":           task.Message,
-		"updated_at":        task.UpdatedAt,
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, task.CallbackURL, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if task.CallbackToken != "" {
-		req.Header.Set("Authorization", "Bearer "+task.CallbackToken)
-	}
-	s.logger.Info("triggering callback",
-		"task_id", task.ID,
-		"site_name", task.SiteName,
-		"callback_url", task.CallbackURL,
-	)
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("callback status %d", resp.StatusCode)
-	}
-	s.logger.Info("callback finished successfully",
-		"task_id", task.ID,
-		"site_name", task.SiteName,
-		"status_code", resp.StatusCode,
-	)
-	return nil
+	return s.callbackClient.PostJSON(ctx, task.CallbackURL, task.CallbackToken, s.toTaskEvent(task, callbackmod.EventDone))
 }
 
 // buildTasks 把一次 Harbor push 事件展开成一个或多个投递任务。
@@ -409,6 +366,7 @@ func (s *Service) buildTasksFromRoutes(eventID, eventType, operator, repoName st
 					SourceRefs:       sourceRefs,
 					TargetRegistry:   target.TargetRegistry,
 					TargetRepository: targetRepo,
+					CallbackEnabled:  target.IsCallbackEnabled(),
 					CallbackURL:      target.CallbackURL,
 					CallbackToken:    target.CallbackToken,
 					Status:           relayv1.TaskStatus_TASK_STATUS_PENDING,
@@ -438,6 +396,102 @@ func (s *Service) buildTasksFromRoutes(eventID, eventType, operator, repoName st
 		}
 	}
 	return tasks
+}
+
+func (s *Service) toTaskEvent(task *Task, event callbackmod.Event) callbackmod.TaskEvent {
+	return callbackmod.TaskEvent{
+		Event:                event,
+		TaskID:               task.ID,
+		EventID:              task.EventID,
+		SiteName:             task.SiteName,
+		Channel:              task.Channel,
+		Status:               task.Status.String(),
+		SourceRegistry:       task.SourceRegistry,
+		Repository:           task.Repository,
+		Digest:               task.Digest,
+		Tags:                 append([]string(nil), task.Tags...),
+		SourcePullRef:        task.SourcePullRef,
+		SourceRefs:           append([]string(nil), task.SourceRefs...),
+		TargetRegistry:       task.TargetRegistry,
+		TargetRepository:     task.TargetRepository,
+		TargetRefs:           append([]string(nil), task.TargetRefs...),
+		TargetRefDescriptors: append([]string(nil), task.TargetRefDescriptors...),
+		Message:              task.Message,
+		CallbackStatus:       task.CallbackStatus,
+		CallbackMessage:      task.CallbackMessage,
+		Metadata:             cloneMap(task.Metadata),
+		UpdatedAt:            task.UpdatedAt,
+	}
+}
+
+func (s *Service) notifyTaskEvent(ctx context.Context, task *Task, event callbackmod.Event) error {
+	_ = ctx
+	if s.notifier == nil {
+		return nil
+	}
+	payload := s.toTaskEvent(task, event)
+	channels := s.notifier.MatchingChannels(task.SiteName, event)
+	if len(channels) == 0 {
+		s.logger.Debug("notification skipped because no channel matched",
+			"task_id", task.ID,
+			"site_name", task.SiteName,
+			"event", string(event),
+		)
+		return nil
+	}
+
+	now := time.Now()
+	jobs := make([]*NotificationJob, 0, len(channels))
+	for _, channel := range channels {
+		receiptKey := buildNotificationReceiptKey(event, channel.Name)
+		if s.store.HasTaskEventNotification(task.ID, receiptKey) {
+			s.logger.Debug("notification skipped because receipt already exists",
+				"task_id", task.ID,
+				"site_name", task.SiteName,
+				"event", string(event),
+				"channel_name", channel.Name,
+			)
+			continue
+		}
+		if s.store.HasPendingNotificationJob(task.ID, receiptKey) {
+			s.logger.Debug("notification skipped because job is already queued",
+				"task_id", task.ID,
+				"site_name", task.SiteName,
+				"event", string(event),
+				"channel_name", channel.Name,
+			)
+			continue
+		}
+
+		jobs = append(jobs, &NotificationJob{
+			ID:            buildNotificationJobID(task.ID, receiptKey),
+			TaskID:        task.ID,
+			SiteName:      task.SiteName,
+			ChannelName:   channel.Name,
+			ChannelKey:    buildNotificationChannelKey(task.SiteName, channel.Name),
+			ReceiptKey:    receiptKey,
+			Event:         string(event),
+			Status:        NotificationJobStatusPending,
+			Payload:       payload,
+			NextAttemptAt: now,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		})
+	}
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	if err := s.store.EnqueueNotificationJobs(jobs); err != nil {
+		return err
+	}
+	s.logger.Info("notification jobs queued",
+		"task_id", task.ID,
+		"site_name", task.SiteName,
+		"event", string(event),
+		"job_count", len(jobs),
+	)
+	return nil
 }
 
 func (s *Service) buildTasksFromTargets(eventID, eventType, operator, repoName string, grouped map[string][]string, sourceRegistry, webhookName string) []*Task {
@@ -482,6 +536,7 @@ func (s *Service) buildTasksFromTargets(eventID, eventType, operator, repoName s
 				SourceRefs:       sourceRefs,
 				TargetRegistry:   target.TargetRegistry,
 				TargetRepository: targetRepo,
+				CallbackEnabled:  target.IsCallbackEnabled(),
 				CallbackURL:      target.CallbackURL,
 				CallbackToken:    target.CallbackToken,
 				Status:           relayv1.TaskStatus_TASK_STATUS_PENDING,

@@ -1,0 +1,130 @@
+.hero {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(255, 196, 100, 0.24), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(0, 153, 204, 0.22), transparent 28%),
+    linear-gradient(135deg, #0f172a 0%, #12263a 45%, #123048 100%);
+  color: #f8fafc;
+  padding: 5.5rem 0 4rem;
+}
+
+.heroInner {
+  display: grid;
+  gap: 2rem;
+  align-items: center;
+  grid-template-columns: 1.3fr 0.9fr;
+}
+
+.eyebrow {
+  color: #f8bd5d;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  margin: 0 0 0.75rem;
+  text-transform: uppercase;
+}
+
+.heroCopy h1 {
+  font-size: clamp(2.3rem, 5vw, 4rem);
+  line-height: 1.08;
+  margin: 0 0 1rem;
+}
+
+.lead {
+  color: rgba(248, 250, 252, 0.86);
+  font-size: 1.08rem;
+  line-height: 1.8;
+  margin: 0 0 1.5rem;
+  max-width: 52rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+}
+
+.heroPanel {
+  border: 1px solid rgba(248, 250, 252, 0.12);
+  border-radius: 24px;
+  padding: 1.5rem;
+  backdrop-filter: blur(14px);
+  background: rgba(15, 23, 42, 0.38);
+  box-shadow: 0 20px 60px rgba(8, 15, 30, 0.28);
+}
+
+.panelTitle {
+  color: #f8bd5d;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 1rem;
+  text-transform: uppercase;
+}
+
+.flowLine {
+  background: rgba(248, 250, 252, 0.08);
+  border: 1px solid rgba(248, 250, 252, 0.14);
+  border-radius: 14px;
+  font-weight: 700;
+  padding: 0.95rem 1rem;
+  text-align: center;
+}
+
+.flowArrow {
+  color: rgba(248, 250, 252, 0.58);
+  font-size: 1.4rem;
+  text-align: center;
+  padding: 0.35rem 0;
+}
+
+.main {
+  padding: 3rem 0 4rem;
+}
+
+.cardGrid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.card {
+  display: block;
+  color: inherit;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fafc 100%);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 22px;
+  box-shadow: 0 16px 45px rgba(15, 23, 42, 0.08);
+  padding: 1.4rem;
+  text-decoration: none !important;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.card:hover {
+  border-color: rgba(14, 116, 144, 0.25);
+  box-shadow: 0 20px 55px rgba(14, 116, 144, 0.14);
+  transform: translateY(-3px);
+}
+
+.card h2 {
+  color: #0f172a;
+  font-size: 1.3rem;
+  margin: 0 0 0.75rem;
+}
+
+.card p {
+  color: #334155;
+  line-height: 1.75;
+  margin: 0;
+}
+
+@media (max-width: 996px) {
+  .heroInner {
+    grid-template-columns: 1fr;
+  }
+
+  .cardGrid {
+    grid-template-columns: 1fr;
+  }
+}

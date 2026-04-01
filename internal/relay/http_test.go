@@ -40,6 +40,23 @@ func TestHTTPHandler_HealthTasksAgents(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("upsert agent failed: %v", err)
 	}
+	if err := store.EnqueueNotificationJobs([]*NotificationJob{
+		{
+			ID:            "notify-1",
+			TaskID:        "task-1",
+			SiteName:      "dc1",
+			ChannelName:   "ops-group",
+			ChannelKey:    "dc1::ops-group",
+			ReceiptKey:    "queued::ops-group",
+			Event:         "queued",
+			Status:        NotificationJobStatusPending,
+			NextAttemptAt: now,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		},
+	}); err != nil {
+		t.Fatalf("enqueue notification jobs failed: %v", err)
+	}
 
 	service := NewService(config.RelayConfig{ServiceName: "harbor-relay"}, store, testLogger())
 	handler := service.HTTPHandler()
@@ -77,6 +94,20 @@ func TestHTTPHandler_HealthTasksAgents(t *testing.T) {
 	}
 	if len(agentsResp["items"]) != 1 {
 		t.Fatalf("expected 1 agent item, got %d", len(agentsResp["items"]))
+	}
+
+	rrNotify := httptest.NewRecorder()
+	reqNotify := httptest.NewRequest(http.MethodGet, "/api/v1/notification-jobs", nil)
+	handler.ServeHTTP(rrNotify, reqNotify)
+	if rrNotify.Code != http.StatusOK {
+		t.Fatalf("unexpected notification jobs status: %d", rrNotify.Code)
+	}
+	var notificationResp map[string][]NotificationJob
+	if err := json.Unmarshal(rrNotify.Body.Bytes(), &notificationResp); err != nil {
+		t.Fatalf("unmarshal notification jobs response failed: %v", err)
+	}
+	if len(notificationResp["items"]) != 1 {
+		t.Fatalf("expected 1 notification job item, got %d", len(notificationResp["items"]))
 	}
 }
 
