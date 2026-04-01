@@ -35,6 +35,11 @@ target_username: admin
 target_password: replace-with-target-password
 
 docker_binary: docker
+
+# 强烈建议给 agent 单独的 Docker 认证目录。
+# 这样它的 docker login 不会污染你手工执行 docker push 时使用的凭据。
+docker_config_dir: /data/harbor-relay/docker-config
+
 heartbeat_interval: 10s
 reconnect_interval: 5s
 

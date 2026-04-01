@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"sync/atomic"
@@ -263,8 +264,11 @@ func (a *Agent) login(ctx context.Context, registry, username, password string) 
 	if registry == "" || username == "" || password == "" {
 		return nil
 	}
+	if err := a.ensureDockerConfigDir(); err != nil {
+		return err
+	}
 	a.logger.Debug("docker login started", "registry", registry, "username", username)
-	cmd := exec.CommandContext(ctx, a.cfg.DockerBinary, "login", registry, "-u", username, "--password-stdin")
+	cmd := exec.CommandContext(ctx, a.cfg.DockerBinary, a.dockerArgs("login", registry, "-u", username, "--password-stdin")...)
 	cmd.Stdin = strings.NewReader(password)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -276,8 +280,11 @@ func (a *Agent) login(ctx context.Context, registry, username, password string) 
 
 // runDocker 是对 docker CLI 的最薄封装，方便后面补测试桩或替换实现。
 func (a *Agent) runDocker(ctx context.Context, args ...string) error {
+	if err := a.ensureDockerConfigDir(); err != nil {
+		return err
+	}
 	a.logger.Debug("docker command started", "args", args)
-	cmd := exec.CommandContext(ctx, a.cfg.DockerBinary, args...)
+	cmd := exec.CommandContext(ctx, a.cfg.DockerBinary, a.dockerArgs(args...)...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
@@ -324,4 +331,20 @@ func normalizeRegistryHost(host string) string {
 	host = strings.TrimSpace(strings.ToLower(host))
 	host = strings.TrimSuffix(host, "/")
 	return host
+}
+
+func (a *Agent) dockerArgs(args ...string) []string {
+	if a.cfg.DockerConfigDir == "" {
+		return args
+	}
+	result := []string{"--config", a.cfg.DockerConfigDir}
+	result = append(result, args...)
+	return result
+}
+
+func (a *Agent) ensureDockerConfigDir() error {
+	if a.cfg.DockerConfigDir == "" {
+		return nil
+	}
+	return os.MkdirAll(a.cfg.DockerConfigDir, 0o700)
 }

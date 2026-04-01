@@ -57,3 +57,23 @@ func TestShouldDelayTargetLogin_DifferentRegistry(t *testing.T) {
 		t.Fatal("expected target login not to be delayed for different registries")
 	}
 }
+
+func TestDockerArgs_UsesDedicatedConfigDir(t *testing.T) {
+	a := &Agent{
+		cfg: config.AgentConfig{
+			DockerBinary:    "docker",
+			DockerConfigDir: "/data/harbor-relay/docker-config",
+		},
+	}
+
+	got := a.dockerArgs("pull", "image.hm.metavarse.tech:9443/test:v1")
+	want := []string{"--config", "/data/harbor-relay/docker-config", "pull", "image.hm.metavarse.tech:9443/test:v1"}
+	if len(got) != len(want) {
+		t.Fatalf("unexpected arg length: got=%v want=%v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("unexpected args: got=%v want=%v", got, want)
+		}
+	}
+}

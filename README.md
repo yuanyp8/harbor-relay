@@ -311,6 +311,23 @@ max_session_age: 30m
 - 有任务，但站点不匹配
 - 站点匹配了，但频道不匹配
 
+## 新增说明：同机测试时避免 Docker 凭据互相覆盖
+
+如果你在同一台机器上同时做下面两件事：
+
+- 手工 `docker push` 到源项目
+- 让 agent 同步到目标项目
+
+而且两边都是同一个 Harbor 域名，但用的是不同 robot 账号，那么默认的 Docker 凭据文件会互相覆盖。
+
+现在 agent 支持：
+
+```yaml
+docker_config_dir: /data/harbor-relay/docker-config
+```
+
+这样 agent 会把自己的 `docker login` 状态写到独立目录，不再污染你 shell 下的 `/root/.docker/config.json`。
+
 ## 新增说明：callback_url 是干什么的
 
 `callback_url` 不是给 Harbor 用的，也不是给 agent 直接消费的。

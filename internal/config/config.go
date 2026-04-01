@@ -74,6 +74,7 @@ type AgentConfig struct {
 	TargetUsername     string        `yaml:"target_username"`
 	TargetPassword     string        `yaml:"target_password"`
 	DockerBinary       string        `yaml:"docker_binary"`
+	DockerConfigDir    string        `yaml:"docker_config_dir"`
 	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`
 	ReconnectInterval  time.Duration `yaml:"reconnect_interval"`
 	MaxSessionAge      time.Duration `yaml:"max_session_age"`
@@ -190,6 +191,9 @@ func LoadAgentConfig(path string) (AgentConfig, error) {
 	}
 	if cfg.DockerBinary == "" {
 		cfg.DockerBinary = "docker"
+	}
+	if cfg.DockerConfigDir == "" {
+		cfg.DockerConfigDir = "./data/docker-config"
 	}
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = "info"
