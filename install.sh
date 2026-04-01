@@ -247,12 +247,89 @@ install_systemd_units() {
     fi
 }
 
+line_has_placeholder() {
+    local line="$1"
+    [[ "${line}" =~ replace-with-|example\.com|changeme|<[^>]+> ]]
+}
+
 config_has_placeholders() {
     local file="$1"
+    local in_targets=0
+    local in_notifications=0
+    local callback_enabled=true
+    local notification_enabled=true
+    local line trimmed key value
+
     [[ -f "${file}" ]] || return 0
-    if grep -Ev '^[[:space:]]*#|^[[:space:]]*$' "${file}" | grep -Eiq 'replace-with-|example\.com|changeme|<[^>]+>'; then
-        return 0
-    fi
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        trimmed="${line#"${line%%[![:space:]]*}"}"
+        [[ -z "${trimmed}" || "${trimmed}" == \#* ]] && continue
+
+        if [[ ! "${trimmed}" =~ ^-?[[:space:]]*[A-Za-z0-9_]+: ]]; then
+            continue
+        fi
+
+        key="${trimmed%%:*}"
+        key="${key#- }"
+        value="${trimmed#*:}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%\"}"
+        value="${value#\"}"
+
+        case "${key}" in
+            targets)
+                in_targets=1
+                in_notifications=0
+                callback_enabled=true
+                notification_enabled=true
+                continue
+                ;;
+            notifications)
+                if (( in_targets )); then
+                    in_notifications=1
+                    notification_enabled=true
+                fi
+                continue
+                ;;
+        esac
+
+        if (( in_targets )); then
+            case "${key}" in
+                name)
+                    if (( in_notifications )); then
+                        notification_enabled=true
+                    else
+                        callback_enabled=true
+                        in_notifications=0
+                    fi
+                    ;;
+                callback_enabled)
+                    [[ "${value}" == "false" ]] && callback_enabled=false || callback_enabled=true
+                    ;;
+                enabled)
+                    if (( in_notifications )); then
+                        [[ "${value}" == "false" ]] && notification_enabled=false || notification_enabled=true
+                    fi
+                    ;;
+                callback_url|callback_token)
+                    if ! ${callback_enabled}; then
+                        continue
+                    fi
+                    ;;
+                endpoint|robot_key)
+                    if (( in_notifications )) && ! ${notification_enabled}; then
+                        continue
+                    fi
+                    ;;
+            esac
+        fi
+
+        if line_has_placeholder "${trimmed}"; then
+            return 0
+        fi
+    done < "${file}"
+
     return 1
 }
 

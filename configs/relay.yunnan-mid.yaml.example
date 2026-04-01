@@ -1,0 +1,128 @@
+service_name: harbor-relay
+
+log_level: info
+log_format: text
+
+# Harbor webhook must be able to reach this address.
+http_listen: 0.0.0.0:18080
+
+# Keep gRPC private when fronted by Caddy.
+grpc_listen: 127.0.0.1:19090
+
+data_file: /var/lib/harbor-relay/relay-state.json
+
+# Source Harbor exposed through Caddy.
+source_registry: image.hm.metavarse.tech:9443
+
+webhooks:
+  - name: yunnan-mid
+    enabled: true
+    path: /api/v1/harbor/webhook/yunnan-mid
+    authorization: "Bearer replace-with-yunnan-mid-relay-secret"
+    source_registry: image.hm.metavarse.tech:9443
+
+routes:
+  - name: yunnan-mid
+    channel: yunnan-mid
+    enabled: true
+    webhook_names:
+      - yunnan-mid
+    repository_patterns:
+      - "yunnan-mid/**"
+    target_sites:
+      - yunnan-mid
+
+targets:
+  - name: yunnan-mid
+    site_name: yunnan-mid
+    enabled: true
+
+    # Current same-Harbor smoke-test mode:
+    # source  -> image.hm.metavarse.tech:9443/yunnan-mid/*
+    # target  -> image.hm.metavarse.tech:9443/yunnan-mid-test/*
+    target_registry: image.hm.metavarse.tech:9443
+    target_project: yunnan-mid-test
+
+    # If you later switch to the real remote DC internal registry,
+    # uncomment the next line and adjust target_project / repository_prefix.
+    # target_registry: sealos.hub:5000
+
+    repository_prefix: ""
+
+    # Turn callback on only after the receiver is stable.
+    callback_enabled: false
+    callback_url: "https://ops.hm.metavarse.tech/api/image-sync/callback"
+    callback_token: "replace-with-callback-token"
+
+    notifications:
+      - name: spring-queued
+        type: onemsg_robot
+        enabled: true
+        endpoint: "replace-with-spring-robot-full-url"
+        title_prefix: "Yunnan Secondary Platform"
+        events:
+          - queued
+        timeout: 10s
+        min_interval: 1m
+        retry_interval: 30s
+        max_attempts: 0
+
+      - name: summer-pulling
+        type: onemsg_robot
+        enabled: true
+        endpoint: "replace-with-summer-robot-full-url"
+        title_prefix: "Yunnan Secondary Platform"
+        events:
+          - pulling
+        timeout: 10s
+        min_interval: 1m
+        retry_interval: 30s
+        max_attempts: 0
+
+      - name: autumn-pushing
+        type: onemsg_robot
+        enabled: true
+        endpoint: "replace-with-autumn-robot-full-url"
+        title_prefix: "Yunnan Secondary Platform"
+        events:
+          - pushing
+        timeout: 10s
+        min_interval: 1m
+        retry_interval: 30s
+        max_attempts: 0
+
+      - name: winter-done
+        type: onemsg_robot
+        enabled: true
+        endpoint: "replace-with-winter-robot-full-url"
+        title_prefix: "Yunnan Secondary Platform"
+        events:
+          - done
+        timeout: 10s
+        min_interval: 1m
+        retry_interval: 30s
+        max_attempts: 0
+
+      - name: daomei-failed
+        type: onemsg_robot
+        enabled: true
+        endpoint: "replace-with-daomei-robot-full-url"
+        title_prefix: "Yunnan Secondary Platform"
+        events:
+          - failed
+        timeout: 10s
+        min_interval: 1m
+        retry_interval: 30s
+        max_attempts: 0
+
+      - name: caomei-callback-failed
+        type: onemsg_robot
+        enabled: true
+        endpoint: "replace-with-caomei-robot-full-url"
+        title_prefix: "Yunnan Secondary Platform"
+        events:
+          - callback_failed
+        timeout: 10s
+        min_interval: 1m
+        retry_interval: 30s
+        max_attempts: 0

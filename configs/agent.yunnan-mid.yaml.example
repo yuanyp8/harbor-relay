@@ -1,0 +1,45 @@
+agent_id: yunnan-mid-agent-01
+site_name: yunnan-mid
+
+log_level: info
+log_format: text
+
+channels:
+  - yunnan-mid
+
+version: "v1"
+
+# Recommended production mode:
+# the remote DC agent connects to relay through Caddy TLS.
+relay_address: relay.hm.metavarse.tech:9443
+relay_server_name: relay.hm.metavarse.tech
+insecure_skip_verify: false
+
+# If you are doing same-host smoke testing on the relay machine,
+# switch to:
+# relay_address: 127.0.0.1:19090
+# relay_server_name: ""
+
+source_registry: image.hm.metavarse.tech:9443
+source_username: robot$yunnan-mid+robot-yunnan-mid
+source_password: replace-with-source-robot-password
+
+# Current same-Harbor smoke-test mode.
+target_registry: image.hm.metavarse.tech:9443
+target_username: robot$yunnan-mid-test+yunnan-mid-test
+target_password: replace-with-target-robot-password
+
+# If the real remote DC target is the local internal registry,
+# switch target_registry / target credentials accordingly.
+# target_registry: sealos.hub:5000
+# target_username: replace-with-dc-registry-username
+# target_password: replace-with-dc-registry-password
+
+docker_binary: docker
+docker_config_dir: /var/lib/harbor-relay-agent/docker-config
+
+heartbeat_interval: 10s
+reconnect_interval: 5s
+max_session_age: 30m
+
+cleanup_local_images: true
