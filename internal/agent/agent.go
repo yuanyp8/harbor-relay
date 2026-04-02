@@ -338,7 +338,7 @@ func normalizeRegistryHost(host string) string {
 func (a *Agent) loginArgs(registry, username string) []string {
 	switch a.runtimeKind() {
 	case "sealos":
-		return []string{"login", registry, "-u", username, "--password-stdin"}
+		return []string{"login", "-u", username, "--password-stdin", registry}
 	default:
 		return a.runtimeArgs("login", registry, "-u", username, "--password-stdin")
 	}
