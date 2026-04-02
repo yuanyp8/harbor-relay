@@ -108,7 +108,7 @@ func TestLoginArgs_SealosUsesNativeLoginSyntax(t *testing.T) {
 	}
 
 	got := a.loginArgs("registry.example.com:9443", "robot")
-	want := []string{"login", "registry.example.com:9443", "-u", "robot", "--password-stdin"}
+	want := []string{"login", "-u", "robot", "--password-stdin", "registry.example.com:9443"}
 	if len(got) != len(want) {
 		t.Fatalf("unexpected arg length: got=%v want=%v", got, want)
 	}
