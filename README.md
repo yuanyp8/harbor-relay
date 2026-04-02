@@ -1,5 +1,17 @@
 # Harbor Relay
 
+## Release Notes
+
+Current stable release: `v0.0.2`
+
+This release focuses on service lifecycle stability:
+
+- fixes relay restart hangs caused by long-lived gRPC agent streams
+- adds bounded graceful shutdown with force-stop fallback
+- updates the bundled `systemd` unit with `TimeoutStopSec=20`
+
+See [CHANGELOG](./CHANGELOG.md) for the full release summary.
+
 `harbor-relay` 是一套面向交付场景和多环境运维场景的镜像同步控制面。
 
 它把下面这条链路串了起来：
@@ -177,3 +189,37 @@ GitHub Actions 默认负责三件事：
 
 This project is licensed under the Apache License 2.0.
 See [LICENSE](./LICENSE) for details.
+
+## 启动docs服务
+```bash
+docker run -d \
+  --name harbor-relay-docs \
+  --restart=always \
+  -p 127.0.0.1:18081:8080 \
+  image.xxxx 
+```
+
+caddy转发
+```caddy
+docs.xxxx:9443 {
+    encode zstd gzip
+
+    header {
+        -Server
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    }
+
+    reverse_proxy 127.0.0.1:18081
+}
+```
+
+软连接
+```bash
+ln -sfn \
+  /etc/caddy/sites-available/harbor-docs.hm.metavarse.tech_9443.caddy \
+  /etc/caddy/sites-enabled/harbor-docs.hm.metavarse.tech_9443.caddy
+
+```

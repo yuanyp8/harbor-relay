@@ -174,3 +174,42 @@ caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl reload caddy
 journalctl -u caddy -n 200 --no-pager
 ```
+
+## 12. `systemctl restart harbor-relay.service` 长时间卡住
+
+现象：
+
+- 前台执行 `systemctl restart harbor-relay.service` 很久才返回
+- 日志里已经出现 `shutdown requested`
+- 旧进程还在持续打印 agent `heartbeat`
+- 最后被 `systemd` 以 `State 'stop-sigterm' timed out. Killing.` 强制结束
+
+原因：
+
+- relay 收到 `SIGTERM` 后，HTTP 服务可以较快退出
+- 但 gRPC agent 长连接仍在优雅停机阶段阻塞
+- `grpc.GracefulStop()` 会等待活动中的双向流自己结束，如果 agent 持续发心跳，就会拖长停机时间
+
+解决方法：
+
+- 升级到 `v0.0.2` 或更新版本
+- 替换新的 `harbor-relay` 二进制
+- 确保 `harbor-relay.service` 中包含：
+
+```ini
+TimeoutStopSec=20
+```
+
+- 更新后执行：
+
+```bash
+systemctl daemon-reload
+systemctl restart harbor-relay.service
+journalctl -u harbor-relay.service -n 50 --no-pager
+```
+
+新版本行为：
+
+- 先尝试 gRPC 优雅停机
+- 如果超过内部超时仍未退出，会自动切换到强制停止
+- 避免 `systemd` 再卡到默认的 stop timeout

@@ -12,6 +12,7 @@ WorkingDirectory=/var/lib/harbor-relay
 ExecStart=/usr/local/bin/harbor-relay --config /etc/harbor-relay/relay.yaml
 Restart=always
 RestartSec=5
+TimeoutStopSec=20
 LimitNOFILE=1048576
 
 [Install]

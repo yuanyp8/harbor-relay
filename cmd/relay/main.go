@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -17,6 +18,13 @@ import (
 	"github.com/yuanyp8/harbor-relay/internal/logutil"
 	"github.com/yuanyp8/harbor-relay/internal/relay"
 )
+
+const grpcShutdownTimeout = 8 * time.Second
+
+type grpcStopper interface {
+	GracefulStop()
+	Stop()
+}
 
 func main() {
 	configPath := flag.String("config", "/etc/harbor-relay/relay.yaml", "path to the relay config file")
@@ -89,6 +97,31 @@ func main() {
 	runtimeCancel()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	_ = httpServer.Shutdown(ctx)
-	grpcServer.GracefulStop()
+	if err := httpServer.Shutdown(ctx); err != nil {
+		logger.Warn("http server shutdown returned error", "err", err)
+	}
+	stopGRPCServer(logger, grpcServer, grpcShutdownTimeout)
+}
+
+// stopGRPCServer 先尝试优雅关闭 gRPC 服务，给 agent 长连接一个尽量平滑的退出窗口。
+// 如果超时仍有双向流未结束，则主动调用 Stop 断开连接，避免 systemd restart 卡在 stop-sigterm。
+func stopGRPCServer(logger *slog.Logger, server grpcStopper, timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		server.GracefulStop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		logger.Info("grpc server stopped gracefully", "timeout", timeout)
+	case <-time.After(timeout):
+		logger.Warn("grpc graceful stop timed out; forcing stop", "timeout", timeout)
+		server.Stop()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			logger.Warn("grpc server stop did not finish promptly after force stop")
+		}
+	}
 }
