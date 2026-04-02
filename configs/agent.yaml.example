@@ -27,6 +27,9 @@ target_registry: registry-dr.example.com:9443
 target_username: robot$team-a-dr+target-sync
 target_password: replace-with-target-credential
 
+# Runtime binary used for login / pull / tag / push.
+# - docker: keep using Docker-compatible --config
+# - sealos: switch to REGISTRY_AUTH_FILE / sealos login syntax automatically
 docker_binary: docker
 docker_config_dir: /var/lib/harbor-relay-agent/docker-config
 

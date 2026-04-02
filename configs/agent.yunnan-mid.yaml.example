@@ -35,7 +35,9 @@ target_password: replace-with-target-robot-password
 # target_username: replace-with-dc-registry-username
 # target_password: replace-with-dc-registry-password
 
-docker_binary: docker
+# Runtime binary used for login / pull / tag / push.
+# If the target side is driven by sealos instead of Docker, change to:
+# docker_binary: sealos
 docker_config_dir: /var/lib/harbor-relay-agent/docker-config
 
 heartbeat_interval: 10s

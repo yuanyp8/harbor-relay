@@ -2,13 +2,14 @@
 
 ## Release Notes
 
-Current stable release: `v0.0.2`
+Current stable release: `v0.0.3`
 
-This release focuses on service lifecycle stability:
+This release focuses on agent runtime compatibility:
 
-- fixes relay restart hangs caused by long-lived gRPC agent streams
-- adds bounded graceful shutdown with force-stop fallback
-- updates the bundled `systemd` unit with `TimeoutStopSec=20`
+- adds Sealos runtime support in the agent login / pull / push flow
+- keeps the existing Docker `--config` isolation path unchanged
+- maps `docker_config_dir` to `REGISTRY_AUTH_FILE` automatically for Sealos
+- documents how to switch `docker_binary` between `docker` and `sealos`
 
 See [CHANGELOG](./CHANGELOG.md) for the full release summary.
 

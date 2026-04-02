@@ -97,6 +97,25 @@ journalctl -u caddy -n 100 --no-pager
 - 再切换到目标账号登录并推送
 - 同时使用独立的 `docker_config_dir`，避免污染 `/root/.docker/config.json`
 
+### `sealos login` 报 `unknown flag: --config`
+
+现象：
+
+```text
+source login failed: exit status 1: Error: unknown flag: --config
+```
+
+原因：
+
+- agent 机器实际使用的是 `sealos`，不是 `docker`
+- `sealos login` 不接受 Docker 风格的 `--config`
+
+处理方式：
+
+- 在 `agent.yaml` 里把 `docker_binary` 改成 `sealos`
+- 保留 `docker_config_dir`
+- 新版本 agent 会自动改用 `REGISTRY_AUTH_FILE` 和 `sealos login`
+
 ## 7. 同步完成了，但 callback 失败
 
 这不一定表示镜像同步失败。

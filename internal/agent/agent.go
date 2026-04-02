@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -267,7 +268,8 @@ func (a *Agent) login(ctx context.Context, registry, username, password string) 
 		return err
 	}
 	a.logger.Debug("docker login started", "registry", registry, "username", username)
-	cmd := exec.CommandContext(ctx, a.cfg.DockerBinary, a.dockerArgs("login", registry, "-u", username, "--password-stdin")...)
+	cmd := exec.CommandContext(ctx, a.cfg.DockerBinary, a.loginArgs(registry, username)...)
+	cmd.Env = a.commandEnv()
 	cmd.Stdin = strings.NewReader(password)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -283,7 +285,8 @@ func (a *Agent) runDocker(ctx context.Context, args ...string) error {
 		return err
 	}
 	a.logger.Debug("docker command started", "args", args)
-	cmd := exec.CommandContext(ctx, a.cfg.DockerBinary, a.dockerArgs(args...)...)
+	cmd := exec.CommandContext(ctx, a.cfg.DockerBinary, a.runtimeArgs(args...)...)
+	cmd.Env = a.commandEnv()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
@@ -332,13 +335,57 @@ func normalizeRegistryHost(host string) string {
 	return host
 }
 
-func (a *Agent) dockerArgs(args ...string) []string {
+func (a *Agent) loginArgs(registry, username string) []string {
+	switch a.runtimeKind() {
+	case "sealos":
+		return []string{"login", registry, "-u", username, "--password-stdin"}
+	default:
+		return a.runtimeArgs("login", registry, "-u", username, "--password-stdin")
+	}
+}
+
+func (a *Agent) runtimeArgs(args ...string) []string {
 	if a.cfg.DockerConfigDir == "" {
 		return args
 	}
-	result := []string{"--config", a.cfg.DockerConfigDir}
-	result = append(result, args...)
-	return result
+	switch a.runtimeKind() {
+	case "sealos":
+		return args
+	default:
+		result := []string{"--config", a.cfg.DockerConfigDir}
+		result = append(result, args...)
+		return result
+	}
+}
+
+func (a *Agent) commandEnv() []string {
+	env := os.Environ()
+	if a.cfg.DockerConfigDir == "" {
+		return env
+	}
+	switch a.runtimeKind() {
+	case "sealos":
+		return append(env, "REGISTRY_AUTH_FILE="+a.sealosAuthFile())
+	default:
+		return env
+	}
+}
+
+func (a *Agent) runtimeKind() string {
+	name := strings.ToLower(filepath.Base(strings.TrimSpace(a.cfg.DockerBinary)))
+	switch {
+	case strings.Contains(name, "sealos"):
+		return "sealos"
+	default:
+		return "docker"
+	}
+}
+
+func (a *Agent) sealosAuthFile() string {
+	if a.cfg.DockerConfigDir == "" {
+		return ""
+	}
+	return filepath.Join(a.cfg.DockerConfigDir, "auth.json")
 }
 
 func (a *Agent) ensureDockerConfigDir() error {

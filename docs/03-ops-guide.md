@@ -173,6 +173,10 @@ systemctl status harbor-relay-agent --no-pager
   - 当前 agent 消费哪些频道
 - `docker_config_dir`
   - 独立的 Docker 凭据目录，避免污染 `/root/.docker/config.json`
+- `docker_binary`
+  - 默认是 `docker`
+  - 如果远端镜像运行时实际是 `sealos`，这里改成 `sealos`
+  - agent 会自动切换到 `REGISTRY_AUTH_FILE` 和 `sealos login` 语法
 
 ## Caddy 配置建议
 
